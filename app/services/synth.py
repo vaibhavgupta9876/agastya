@@ -29,6 +29,7 @@ Voice rules (obey strictly):
 - Write as if the reader is smart and short on time. Never patronize.
 - For questions_to_ask, each one must reference a SPECIFIC data point from the dossier — a funding round, a named product, a customer, a hiring signal, a person by name. Generic interview questions are a failure.
 - For the essence, one sentence. It should make someone who doesn't know the company immediately understand what they sell and to whom.
+- If employee_reviews show discrepancies (e.g. good culture but terrible work-life balance), write a blunt 1-sentence culture_warning. Otherwise omit it.
 
 Return ONLY valid JSON matching the schema provided. No preamble, no trailing prose."""
 
@@ -81,10 +82,16 @@ async def _synthesize(raw: RawDossier, role: str, mode: str, schema_cls: type) -
 async def synthesize_brief(raw: RawDossier, role: str) -> BriefOutput:
     data = await _synthesize(raw, role, "brief", BriefOutput)
     data.setdefault("company_name", raw.company.name)
+    # Movement is structural — overwrite whatever the LLM produced with the
+    # verbatim dossier data so users see ground truth, not a paraphrase.
+    data["hires"] = raw.hires.model_dump()
+    data["departures"] = raw.departures.model_dump()
     return BriefOutput.model_validate(data)
 
 
 async def synthesize_playbook(raw: RawDossier, role: str) -> PlaybookOutput:
     data = await _synthesize(raw, role, "playbook", PlaybookOutput)
     data.setdefault("company_name", raw.company.name)
+    data["hires"] = raw.hires.model_dump()
+    data["departures"] = raw.departures.model_dump()
     return PlaybookOutput.model_validate(data)

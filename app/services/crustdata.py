@@ -182,6 +182,82 @@ async def search_people_live(
     )
 
 
+# Movement queries. We omit `fields` and let Crustdata return its default
+# rich payload — explicitly projecting was silently dropping company `name`,
+# `function_category`, and `seniority_level` (filterable but not selectable).
+def _iso_days_ago(days: int) -> str:
+    from datetime import date, timedelta
+    return (date.today() - timedelta(days=days)).isoformat()
+
+
+async def recent_hires(company_name: str, days: int = 365, limit: int = 25) -> Any:
+    """
+    People who joined `company_name` within the last `days`.
+
+    Filter: current.company_name = X AND current.start_date >= today-`days`.
+    """
+    return await _post(
+        "/person/search",
+        {
+            "filters": {
+                "op": "and",
+                "conditions": [
+                    {
+                        "field": "experience.employment_details.current.company_name",
+                        "type": "=",
+                        "value": company_name,
+                    },
+                    {
+                        "field": "experience.employment_details.current.start_date",
+                        "type": "=>",
+                        "value": _iso_days_ago(days),
+                    },
+                ],
+            },
+            "limit": limit,
+        },
+    )
+
+
+async def recent_departures(
+    company_name: str,
+    titles: list[str] | None = None,
+    limit: int = 25,
+) -> Any:
+    """
+    People who left `company_name` recently.
+
+    Uses Crustdata's `recently_changed_jobs` flag (their own definition of
+    "recent") combined with past.company_name = X. We don't get to pick the
+    window — past.end_date is not filterable — but the flag matches our
+    "last ~12 months" intent and is cleaner than inferring from current.start_date.
+    """
+    conditions: list[dict[str, Any]] = [
+        {
+            "field": "experience.employment_details.past.company_name",
+            "type": "=",
+            "value": company_name,
+        },
+        {"field": "recently_changed_jobs", "type": "=", "value": True},
+    ]
+    if titles:
+        conditions.append(
+            {
+                "field": "experience.employment_details.past.title",
+                "type": "(.)",
+                "value": "|".join(titles),
+            }
+        )
+
+    return await _post(
+        "/person/search",
+        {
+            "filters": {"op": "and", "conditions": conditions},
+            "limit": limit,
+        },
+    )
+
+
 # ---------------------------------------------------------------------------
 # Web
 # ---------------------------------------------------------------------------

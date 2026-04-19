@@ -17,11 +17,21 @@ from __future__ import annotations
 import asyncio
 from typing import Any
 
-from app.models.schemas import CompanySnapshot, PersonCard, RawDossier, Signal
+from app.models.schemas import (
+    CompanySnapshot,
+    Movement,
+    MovementGroup,
+    MovementPerson,
+    PersonCard,
+    RawDossier,
+    Signal,
+)
 from app.services.crustdata import (
     CrustdataError,
     enrich_company,
     identify_company,
+    recent_departures,
+    recent_hires,
     search_people,
     web_search,
 )
@@ -81,6 +91,7 @@ def _person_from_search(p: dict[str, Any]) -> PersonCard:
         headline=bp.get("headline"),
         linkedin_url=p.get("professional_network_url"),
         location=(bp.get("location") or {}).get("raw"),
+        tenure=current.get("start_date"),
     )
 
 
@@ -143,6 +154,7 @@ def _build_snapshot(cd: dict[str, Any]) -> CompanySnapshot:
         hiring_openings_count=hiring.get("openings_count"),
         hiring_recent_titles=recent_titles_list[:10],
         competitors=comp_websites[:10],
+        employee_reviews=cd.get("employee_reviews"),
     )
 
 
@@ -180,6 +192,214 @@ def _build_signals(cd: dict[str, Any], web_results: list[dict[str, Any]]) -> lis
         )
 
     return [s for s in signals if s.headline][:8]
+
+
+# Title-keyword heuristic for ranking. Crustdata exposes seniority_level as a
+# filterable field but does NOT return it in the response payload, so we infer
+# from the title to pick which faces to surface first.
+_TITLE_RANK = [
+    (("ceo", "founder", "co-founder", "cofounder"), 0),
+    (("president", "chief"), 1),
+    (("evp", "svp"), 2),
+    (("vp ", "vice president", "head of"), 3),
+    (("director",), 4),
+    (("principal", "staff", "lead"), 5),
+    (("manager", "mgr"), 6),
+    (("senior", "sr."), 7),
+    (("intern",), 99),
+]
+
+
+def _seniority_from_title(title: str | None) -> int:
+    if not title:
+        return 50
+    t = title.lower()
+    for needles, rank in _TITLE_RANK:
+        if any(n in t for n in needles):
+            return rank
+    return 20  # plain "Engineer", "PM", "Designer" — meaningful but mid
+
+
+def _company_name(entry: dict[str, Any] | None) -> str | None:
+    """Crustdata returns the company on past/current entries as `name`."""
+    if not isinstance(entry, dict):
+        return None
+    return entry.get("name") or entry.get("company_name")
+
+
+def _past_match(emp: dict[str, Any], target: str) -> dict[str, Any] | None:
+    past = emp.get("past")
+    if isinstance(past, dict):
+        past = [past]
+    if not isinstance(past, list):
+        return None
+    target_lower = target.lower()
+    for entry in past:
+        if isinstance(entry, dict) and (_company_name(entry) or "").lower() == target_lower:
+            return entry
+    return None
+
+
+def _most_recent_past(emp: dict[str, Any], exclude: str) -> dict[str, Any] | None:
+    past = emp.get("past")
+    if isinstance(past, dict):
+        past = [past]
+    if not isinstance(past, list):
+        return None
+    candidates = [
+        e for e in past
+        if isinstance(e, dict) and (_company_name(e) or "").lower() != exclude.lower()
+    ]
+    candidates.sort(key=lambda e: e.get("end_date") or "", reverse=True)
+    return candidates[0] if candidates else None
+
+
+def _employment_details(p: dict[str, Any]) -> dict[str, Any]:
+    emp = (p.get("experience") or {}).get("employment_details") or {}
+    if isinstance(emp, list):
+        emp = emp[0] if emp else {}
+    return emp if isinstance(emp, dict) else {}
+
+
+def _current(emp: dict[str, Any]) -> dict[str, Any]:
+    cur = emp.get("current")
+    if isinstance(cur, list):
+        return cur[0] if cur else {}
+    return cur if isinstance(cur, dict) else {}
+
+
+def _linkedin_url(p: dict[str, Any]) -> str | None:
+    direct = p.get("professional_network_url")
+    if direct:
+        return direct
+    return (
+        ((p.get("social_handles") or {}).get("professional_network_identifier") or {})
+        .get("profile_url")
+    )
+
+
+def _movement_person_from_hire(p: dict[str, Any], target: str) -> MovementPerson | None:
+    bp = p.get("basic_profile") or {}
+    emp = _employment_details(p)
+    cur = _current(emp)
+    if (_company_name(cur) or "").lower() != target.lower():
+        return None
+    prev = _most_recent_past(emp, exclude=target)
+    return MovementPerson(
+        name=bp.get("name") or "Unknown",
+        title=cur.get("title"),
+        headline=(bp.get("headline") if bp.get("headline") not in (None, "-") else None),
+        linkedin_url=_linkedin_url(p),
+        seniority_level=None,
+        event_date=cur.get("start_date"),
+        counterparty_company=_company_name(prev),
+        counterparty_title=(prev or {}).get("title"),
+    )
+
+
+def _movement_person_from_departure(p: dict[str, Any], target: str) -> MovementPerson | None:
+    """
+    Two filters Crustdata can't do server-side:
+      1. Drop internal title changes — `recently_changed_jobs` flags any role
+         change, including a promotion within target. Skip if current employer
+         is still target.
+      2. Drop stale departures — the flag captures any recent profile change,
+         not specifically a recent departure from target. Require the most
+         recent target-tenure to have ended within ~18 months.
+    """
+    bp = p.get("basic_profile") or {}
+    emp = _employment_details(p)
+    cur = _current(emp)
+
+    if (_company_name(cur) or "").lower() == target.lower():
+        return None
+
+    past_list = emp.get("past")
+    if isinstance(past_list, dict):
+        past_list = [past_list]
+    if not isinstance(past_list, list):
+        return None
+    target_tenures = [
+        e for e in past_list
+        if isinstance(e, dict) and (_company_name(e) or "").lower() == target.lower()
+    ]
+    if not target_tenures:
+        return None
+    target_past = max(target_tenures, key=lambda e: e.get("end_date") or "")
+
+    end_date_str = (target_past.get("end_date") or "")[:10]
+    if end_date_str:
+        try:
+            from datetime import date
+            end_d = date.fromisoformat(end_date_str)
+            if (date.today() - end_d).days > 540:
+                return None
+        except ValueError:
+            pass
+
+    return MovementPerson(
+        name=bp.get("name") or "Unknown",
+        title=target_past.get("title"),
+        headline=(bp.get("headline") if bp.get("headline") not in (None, "-") else None),
+        linkedin_url=_linkedin_url(p),
+        seniority_level=None,
+        event_date=target_past.get("end_date"),
+        counterparty_company=_company_name(cur),
+        counterparty_title=cur.get("title"),
+    )
+
+
+def _group_by_counterparty(
+    people: list[MovementPerson], top: int = 5
+) -> list[MovementGroup]:
+    """
+    Group by counterparty company — for hires this is "where they came from",
+    for departures it's "where they went". More signal than function bucketing.
+    """
+    counts: dict[str, int] = {}
+    for p in people:
+        key = (p.counterparty_company or "Other / unknown").strip()
+        if not key:
+            continue
+        counts[key] = counts.get(key, 0) + 1
+    ranked = sorted(counts.items(), key=lambda kv: -kv[1])
+    return [MovementGroup(function=fn, count=ct) for fn, ct in ranked[:top]]
+
+
+def _build_movement(
+    raw_resp: Any,
+    target: str,
+    direction: str,  # "hire" | "departure"
+    cap: int = 12,
+) -> Movement:
+    if not isinstance(raw_resp, dict):
+        return Movement()
+    profiles = raw_resp.get("profiles") or []
+    total = raw_resp.get("total_count") or len(profiles)
+    converter = (
+        _movement_person_from_hire if direction == "hire" else _movement_person_from_departure
+    )
+    people: list[MovementPerson] = []
+    seen: set[str] = set()
+    for p in profiles:
+        try:
+            mp = converter(p, target)
+        except Exception:
+            continue
+        if not mp:
+            continue
+        key = (mp.linkedin_url or mp.name).lower()
+        if key in seen:
+            continue
+        seen.add(key)
+        people.append(mp)
+    people.sort(key=lambda mp: _seniority_from_title(mp.title))
+    capped = people[:cap]
+    return Movement(
+        total=int(total) if total else len(people),
+        people=capped,
+        by_function=_group_by_counterparty(capped),
+    )
 
 
 def _people_from_enrich_section(people_section: dict[str, Any]) -> list[PersonCard]:
@@ -228,9 +448,16 @@ async def build_brief(company: str, role: str) -> RawDossier:
     web_task = asyncio.create_task(
         web_search(f"{resolved_name} {role}", limit=5)
     )
-    enrich_resp, web_resp = await asyncio.gather(enrich_task, web_task)
+    hires_task = asyncio.create_task(recent_hires(resolved_name, days=365, limit=25))
+    departures_task = asyncio.create_task(recent_departures(resolved_name, limit=50))
+    role_departures_task = asyncio.create_task(recent_departures(resolved_name, [role], limit=10))
 
-    if not enrich_resp or not enrich_resp[0].get("matches"):
+    enrich_resp, web_resp, hires_resp, departures_resp, role_departures_resp = await asyncio.gather(
+        enrich_task, web_task, hires_task, departures_task, role_departures_task,
+        return_exceptions=True,
+    )
+
+    if isinstance(enrich_resp, Exception) or not enrich_resp or not enrich_resp[0].get("matches"):
         raise DossierError(f"Could not enrich company at domain '{domain}'.")
 
     cd = enrich_resp[0]["matches"][0]["company_data"]
@@ -238,12 +465,27 @@ async def build_brief(company: str, role: str) -> RawDossier:
     people = _dedupe_people(
         _people_from_enrich_section(cd.get("people") or {}), cap=6
     )
-    signals = _build_signals(cd, web_resp.get("results") or [])
+    web_results = web_resp.get("results") if isinstance(web_resp, dict) else []
+    signals = _build_signals(cd, web_results or [])
+
+    hires = _build_movement(hires_resp, snapshot.name or resolved_name, "hire")
+    departures = _build_movement(departures_resp, snapshot.name or resolved_name, "departure")
+
+    alumni_cards: list[PersonCard] = []
+    if isinstance(role_departures_resp, dict):
+        for p in (role_departures_resp.get("profiles") or []):
+            try:
+                alumni_cards.append(_person_from_search(p))
+            except Exception:
+                continue
 
     return RawDossier(
         company=snapshot,
         people=people,
         signals=signals,
+        hires=hires,
+        departures=departures,
+        alumni_in_role=_dedupe_people(alumni_cards, cap=3)
     )
 
 
@@ -265,11 +507,13 @@ async def build_playbook(company: str, role: str) -> RawDossier:
         web_search(f"{resolved_name} strategy customers product launch", limit=5)
     )
     search_task = asyncio.create_task(
-        search_people(resolved_name, limit=10)
+        search_people(resolved_name, limit=30)
     )
+    hires_task = asyncio.create_task(recent_hires(resolved_name, days=365, limit=25))
+    departures_task = asyncio.create_task(recent_departures(resolved_name, limit=50))
 
-    enrich_resp, web_recent, web_strategy, search_resp = await asyncio.gather(
-        enrich_task, web_recent_task, web_strategy_task, search_task,
+    enrich_resp, web_recent, web_strategy, search_resp, hires_resp, departures_resp = await asyncio.gather(
+        enrich_task, web_recent_task, web_strategy_task, search_task, hires_task, departures_task,
         return_exceptions=True,
     )
 
@@ -296,8 +540,24 @@ async def build_playbook(company: str, role: str) -> RawDossier:
         web_results.extend(web_strategy.get("results") or [])
     signals = _build_signals(cd, web_results)
 
+    hires = _build_movement(hires_resp, snapshot.name or resolved_name, "hire")
+    departures = _build_movement(departures_resp, snapshot.name or resolved_name, "departure")
+
+    # Shadow Org Chart: ICs with longest tenure
+    veterans: list[PersonCard] = []
+    cxo_words = {"chief", "vp", "president", "founder", "head", "director"}
+    valid_tenure_cards = [
+        c for c in search_people_cards 
+        if c.tenure and c.title and not any(w in c.title.lower() for w in cxo_words)
+    ]
+    valid_tenure_cards.sort(key=lambda c: c.tenure or "9999-99-99")
+    veterans = _dedupe_people(valid_tenure_cards, cap=4)
+
     return RawDossier(
         company=snapshot,
         people=people,
         signals=signals,
+        hires=hires,
+        departures=departures,
+        veterans=veterans,
     )

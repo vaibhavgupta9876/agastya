@@ -1,0 +1,67 @@
+.sec__customers {
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.sec__customers > li {
+  padding: 1rem 1.25rem;
+  background: var(--color-surface-subtle);
+  border: 1px solid var(--color-separator);
+  border-radius: var(--radius-md);
+}
+
+.customer__name {
+  font-family: var(--font-display);
+  font-size: 1.05rem;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  color: var(--color-ink);
+  display: block;
+  margin-bottom: 0.25rem;
+}
+
+.customer__note {
+  font-size: 0.92rem;
+  line-height: 1.55;
+  color: var(--color-ink-secondary);
+  max-width: 34rem;
+}
+
+.sec__reading {
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  max-width: var(--measure-reading);
+}
+
+.sec__reading li {
+  font-size: 0.95rem;
+  line-height: 1.5;
+  padding: 0.65rem 1rem;
+  background: var(--color-surface-subtle);
+  border: 1px solid var(--color-separator);
+  border-radius: var(--radius-md);
+  transition: box-shadow var(--dur-fast) var(--ease-out);
+  position: relative;
+}
+
+.sec__reading li:hover {
+  box-shadow: 0 2px 8px var(--color-shadow);
+}
+
+.sec__reading li::before {
+  content: none;
+}
+
+.sec__reading a {
+  color: var(--color-accent);
+  border-bottom: none;
+  transition: color var(--dur-fast) var(--ease-out);
+}
+
+.sec__reading a:hover {
+  color: var(--color-accent-hover);
+}

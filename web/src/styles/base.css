@@ -18,10 +18,10 @@ body,
 body {
   font-family: var(--font-body);
   font-weight: 400;
-  font-size: 16px;
+  font-size: 15px;
   line-height: 1.6;
-  color: var(--color-charcoal);
-  background: var(--color-bone);
+  color: var(--color-ink);
+  background: var(--color-surface);
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
   font-feature-settings: "ss01", "cv11";
@@ -29,14 +29,13 @@ body {
 }
 
 a {
-  color: var(--color-charcoal);
+  color: var(--color-accent);
   text-decoration: none;
-  border-bottom: 1px solid var(--color-hairline);
-  transition: border-color var(--dur-fast) var(--ease-out);
+  transition: color var(--dur-fast) var(--ease-out);
 }
 
 a:hover {
-  border-bottom-color: var(--color-charcoal);
+  color: var(--color-accent-hover);
 }
 
 button {
@@ -59,8 +58,8 @@ textarea {
 }
 
 ::selection {
-  background: var(--color-charcoal);
-  color: var(--color-bone);
+  background: var(--color-accent);
+  color: #fff;
 }
 
 /* global fade-in for view transitions */
@@ -71,7 +70,7 @@ textarea {
 @keyframes view-enter {
   from {
     opacity: 0;
-    transform: translateY(6px);
+    transform: translateY(8px) scale(0.995);
   }
   to {
     opacity: 1;

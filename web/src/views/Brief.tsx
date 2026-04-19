@@ -1,4 +1,5 @@
 import type { BriefOutput } from "../types";
+import MovementStrips from "../components/MovementStrips";
 import "./Brief.css";
 
 interface Props {
@@ -11,11 +12,17 @@ function SectionHead({ children }: { children: string }) {
 }
 
 export default function Brief({ brief, onReset }: Props) {
+  const hasCultureWarning = !!brief.culture_warning;
+  const hasRoleSurvival = brief.role_survival && brief.role_survival.length > 0;
+  
+  // Cast or duck-type for PlaybookOutput specific fields
+  const playbook = brief as any;
+  const hasShadowOrgChart = playbook.shadow_org_chart && playbook.shadow_org_chart.length > 0;
+
   const hasMoment = brief.moment && brief.moment.length > 0;
   const hasPeople = brief.people && brief.people.length > 0;
   const hasCustomers = brief.customers && brief.customers.length > 0;
-  const hasQuestions =
-    brief.questions_to_ask && brief.questions_to_ask.length > 0;
+  const hasQuestions = brief.questions_to_ask && brief.questions_to_ask.length > 0;
 
   return (
     <main className="view brief">
@@ -34,6 +41,13 @@ export default function Brief({ brief, onReset }: Props) {
           <p className="sec__essence">{brief.essence}</p>
         </section>
 
+        {hasCultureWarning && (
+          <section className="sec sec--warning">
+            <SectionHead>Culture Warning</SectionHead>
+            <p className="sec__prose">{brief.culture_warning}</p>
+          </section>
+        )}
+
         {hasMoment && (
           <section className="sec">
             <SectionHead>The moment</SectionHead>
@@ -44,6 +58,8 @@ export default function Brief({ brief, onReset }: Props) {
             </ul>
           </section>
         )}
+
+        <MovementStrips hires={brief.hires} departures={brief.departures} />
 
         {hasPeople && (
           <section className="sec">
@@ -64,6 +80,54 @@ export default function Brief({ brief, onReset }: Props) {
                     <span className="person__title">{p.title}</span>
                   </div>
                   <p className="person__bg">{p.background}</p>
+                </li>
+              ))}
+            </ul>
+          </section>
+        )}
+
+        {hasRoleSurvival && (
+          <section className="sec sec--survival">
+            <SectionHead>Ghosts of the Role (Recent departures)</SectionHead>
+            <ul className="sec__people">
+              {brief.role_survival.map((p, i) => (
+                <li key={i} className="person">
+                  <div className="person__head">
+                    <span className="person__name">
+                      {p.linkedin_url ? (
+                        <a href={p.linkedin_url} target="_blank" rel="noreferrer">
+                          {p.name}
+                        </a>
+                      ) : (
+                        p.name
+                      )}
+                    </span>
+                    <span className="person__title">{p.title}</span>
+                  </div>
+                </li>
+              ))}
+            </ul>
+          </section>
+        )}
+
+        {hasShadowOrgChart && (
+          <section className="sec sec--shadow">
+            <SectionHead>Institutional Memory (The Shadow Org Chart)</SectionHead>
+            <ul className="sec__people">
+              {playbook.shadow_org_chart.map((p: any, i: number) => (
+                <li key={i} className="person">
+                  <div className="person__head">
+                    <span className="person__name">
+                      {p.linkedin_url ? (
+                        <a href={p.linkedin_url} target="_blank" rel="noreferrer">
+                          {p.name}
+                        </a>
+                      ) : (
+                        p.name
+                      )}
+                    </span>
+                    <span className="person__title">{p.title}</span>
+                  </div>
                 </li>
               ))}
             </ul>

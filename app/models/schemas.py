@@ -57,6 +57,7 @@ class CompanySnapshot(BaseModel):
 
     competitors: list[str] = []
     customers: list[str] = []
+    employee_reviews: dict | None = None
 
 
 class PersonCard(BaseModel):
@@ -75,6 +76,35 @@ class Signal(BaseModel):
     summary: str | None = None
 
 
+class MovementPerson(BaseModel):
+    """A single person inside a hires/departures strip."""
+
+    name: str
+    title: str | None = None
+    headline: str | None = None
+    linkedin_url: str | None = None
+    function_category: str | None = None
+    seniority_level: str | None = None
+    # For hires: when they joined target; for departures: when they left target.
+    event_date: str | None = None
+    # For hires: where they came from. For departures: where they went.
+    counterparty_company: str | None = None
+    counterparty_title: str | None = None
+
+
+class MovementGroup(BaseModel):
+    """Aggregate function-bucket counts for the strip's summary line."""
+
+    function: str
+    count: int
+
+
+class Movement(BaseModel):
+    total: int = 0
+    people: list[MovementPerson] = []
+    by_function: list[MovementGroup] = []
+
+
 class RawDossier(BaseModel):
     """What we hand to GPT-5 for synthesis."""
 
@@ -82,6 +112,10 @@ class RawDossier(BaseModel):
     people: list[PersonCard] = []
     signals: list[Signal] = []
     web_snippets: list[str] = []
+    veterans: list[PersonCard] = []
+    alumni_in_role: list[PersonCard] = []
+    hires: Movement = Field(default_factory=Movement)
+    departures: Movement = Field(default_factory=Movement)
 
 
 # ---------------------------------------------------------------------------
@@ -101,11 +135,17 @@ class BriefOutput(BaseModel):
 
     company_name: str
     essence: str
+    culture_warning: str | None = Field(default=None, description="1 short warning if employee reviews contradict marketing")
     moment: list[str] = Field(default_factory=list, description="1-2 recent signals worth referencing")
     people: list[BriefPerson] = []
+    role_survival: list[BriefPerson] = Field(default_factory=list, description="People who recently left the target role")
     product: str
     customers: list[str] = []
     questions_to_ask: list[str] = []
+    # Structural movement data — passed through from RawDossier verbatim,
+    # not synthesized by the LLM. The LLM may reference it in questions.
+    hires: Movement = Field(default_factory=Movement)
+    departures: Movement = Field(default_factory=Movement)
 
 
 class CustomerNote(BaseModel):
@@ -122,6 +162,7 @@ class PlaybookOutput(BriefOutput):
     """What Playbook mode renders — everything in Brief plus the joining-specific sections."""
 
     first_month_people: list[BriefPerson] = []
+    shadow_org_chart: list[BriefPerson] = Field(default_factory=list, description="Longest tenured ICs (not VPs/CXOs)")
     customers_to_know: list[CustomerNote] = []
     the_bet: str = ""
     how_they_talk: list[str] = []

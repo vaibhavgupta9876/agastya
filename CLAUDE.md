@@ -40,3 +40,28 @@ The core loop:
 3. Claude synthesis layer
 4. FastAPI route: `POST /dossier`
 5. Minimal frontend
+
+## Deployment
+
+The application is deployed using the following services:
+
+### 1. Backend (Railway)
+- **URL**: `https://agastya-production.up.railway.app`
+- **Setup**: `railway init` inside the project to link it to the railway service (Agastya).
+- **Environment Variables**: `CRUSTDATA_API_KEY` and `OPENAI_API_KEY` are configured via `railway variables set <VAR>=<VAL>`.
+- **CORS**: `app/main.py` explicitly allows production requests from `agastya.pages.dev`.
+- **How to deploy**:
+  ```bash
+  railway up --detach
+  ```
+
+### 2. Frontend (Cloudflare Pages)
+- **URL**: `https://agastya.pages.dev`
+- **Setup**: Deployed as static Vite app using `npx wrangler pages`.
+- **Environment Variables**: `VITE_API_BASE_URL` in `web/.env` is set to the Railway URL. `web/src/api.ts` uses this to set the base URL.
+- **How to deploy**:
+  ```bash
+  cd web
+  npm run build
+  npx wrangler pages deploy dist --project-name agastya --commit-dirty=true
+  ```

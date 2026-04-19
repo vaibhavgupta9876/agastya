@@ -9,14 +9,41 @@ export interface BriefPerson {
   linkedin_url?: string | null;
 }
 
+export interface MovementPerson {
+  name: string;
+  title?: string | null;
+  headline?: string | null;
+  linkedin_url?: string | null;
+  function_category?: string | null;
+  seniority_level?: string | null;
+  event_date?: string | null;
+  counterparty_company?: string | null;
+  counterparty_title?: string | null;
+}
+
+export interface MovementGroup {
+  function: string;
+  count: number;
+}
+
+export interface Movement {
+  total: number;
+  people: MovementPerson[];
+  by_function: MovementGroup[];
+}
+
 export interface BriefOutput {
   company_name: string;
   essence: string;
+  culture_warning?: string | null;
   moment: string[];
   people: BriefPerson[];
+  role_survival: BriefPerson[];
   product: string;
   customers: string[];
   questions_to_ask: string[];
+  hires: Movement;
+  departures: Movement;
 }
 
 export interface CustomerNote {
@@ -31,6 +58,7 @@ export interface ReadingItem {
 
 export interface PlaybookOutput extends BriefOutput {
   first_month_people: BriefPerson[];
+  shadow_org_chart: BriefPerson[];
   customers_to_know: CustomerNote[];
   the_bet: string;
   how_they_talk: string[];

@@ -1,26 +1,50 @@
 :root {
-  /* palette — bone, charcoal, one muted grey, one hairline */
-  --color-bone: #faf9f5;
-  --color-bone-deeper: #f3f1ea;
-  --color-charcoal: #1a1a1a;
-  --color-muted: #8a8a82;
-  --color-hairline: #e4e1d8;
-  --color-accent-warm: #2a2a25;
+  /* palette — cool, precise, hardware-inspired */
+  --color-surface: #ffffff;
+  --color-surface-raised: rgba(255, 255, 255, 0.72);
+  --color-surface-subtle: #f7f7f8;
+  --color-ink: #1d1d1f;
+  --color-ink-secondary: #6e6e73;
+  --color-ink-tertiary: #aeaeb2;
+  --color-separator: rgba(0, 0, 0, 0.08);
+  --color-separator-opaque: #e5e5ea;
+  --color-accent: #0071e3;
+  --color-accent-hover: #0077ed;
+  --color-glass: rgba(255, 255, 255, 0.65);
+  --color-glass-border: rgba(255, 255, 255, 0.35);
+  --color-shadow: rgba(0, 0, 0, 0.06);
+  --color-shadow-deep: rgba(0, 0, 0, 0.12);
 
-  /* typography */
-  --font-display: "Instrument Serif", "Times New Roman", serif;
+  /* typography — geometric sans-serif only */
+  --font-display: "DM Sans", "Inter", -apple-system, BlinkMacSystemFont, sans-serif;
   --font-body: "Inter", -apple-system, BlinkMacSystemFont, sans-serif;
 
-  /* motion */
-  --ease-out: cubic-bezier(0.16, 1, 0.3, 1);
-  --ease-in-out: cubic-bezier(0.65, 0, 0.35, 1);
-  --dur-fast: 240ms;
-  --dur-med: 440ms;
-  --dur-slow: 680ms;
+  /* radii — squircle-inspired continuous corners */
+  --radius-sm: 10px;
+  --radius-md: 16px;
+  --radius-lg: 22px;
+  --radius-xl: 28px;
 
-  /* rhythm */
-  --space-ma: 8rem; /* the generous negative space */
-  --space-section: 4.5rem;
-  --measure-reading: 36rem;
-  --measure-document: 42rem;
+  /* motion — Apple-inspired spring curves */
+  --ease-out: cubic-bezier(0.25, 1, 0.5, 1);
+  --ease-in-out: cubic-bezier(0.45, 0, 0.55, 1);
+  --ease-spring: cubic-bezier(0.34, 1.56, 0.64, 1);
+  --dur-fast: 200ms;
+  --dur-med: 380ms;
+  --dur-slow: 600ms;
+
+  /* spacing — precise, utilitarian rhythm */
+  --space-xs: 0.5rem;
+  --space-sm: 1rem;
+  --space-md: 1.5rem;
+  --space-lg: 2.5rem;
+  --space-xl: 4rem;
+  --space-section: 3.5rem;
+
+  /* layout */
+  --measure-reading: 38rem;
+  --measure-document: 44rem;
+
+  /* blur */
+  --blur-glass: 24px;
 }
