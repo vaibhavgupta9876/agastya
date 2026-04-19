@@ -149,6 +149,8 @@ class BriefOutput(BaseModel):
     # not synthesized by the LLM. The LLM may reference it in questions.
     hires: Movement = Field(default_factory=Movement)
     departures: Movement = Field(default_factory=Movement)
+    # LLM-generated 2-sentence interpretation of the talent flow pattern.
+    talent_signal: str | None = None
 
 
 class CustomerNote(BaseModel):

@@ -13,9 +13,9 @@
 /* ── Strip ─────────────────────────────────────── */
 
 .mv-strip {
-  background: var(--color-surface-subtle);
-  border: 1px solid var(--color-separator);
-  border-radius: var(--radius-lg);
+  background: var(--color-surface);
+  border: 1px solid var(--color-separator-opaque);
+  border-radius: var(--radius-md);
   overflow: hidden;
   transition: box-shadow var(--dur-fast) var(--ease-out);
 }
@@ -43,11 +43,11 @@
 
 /* directional accent — left rail color marker */
 .mv-strip--in {
-  border-left: 3px solid #1f8a4c;
+  border-left: 3px solid #4a7a4a;
 }
 
 .mv-strip--out {
-  border-left: 3px solid #b04a3f;
+  border-left: 3px solid #9b3838;
 }
 
 /* ── Header line ───────────────────────────────── */
@@ -67,11 +67,11 @@
 }
 
 .mv-strip--in .mv-strip__glyph {
-  color: #1f8a4c;
+  color: #4a7a4a;
 }
 
 .mv-strip--out .mv-strip__glyph {
-  color: #b04a3f;
+  color: #9b3838;
 }
 
 .mv-strip__label {
@@ -167,11 +167,11 @@
 
 .mv-strip__cta {
   margin-left: auto;
-  font-size: 0.72rem;
-  letter-spacing: 0.04em;
+  font-size: 0.7rem;
+  letter-spacing: 0.08em;
   text-transform: uppercase;
   font-weight: 600;
-  color: var(--color-accent);
+  color: var(--color-ink-secondary);
 }
 
 /* ── Expanded list ─────────────────────────────── */
@@ -233,12 +233,14 @@
 }
 
 .mv-row__name a {
-  color: var(--color-accent);
-  border-bottom: none;
+  color: var(--color-ink);
+  border-bottom: 1px solid transparent;
+  transition: border-color var(--dur-fast) var(--ease-out);
 }
 
 .mv-row__name a:hover {
-  color: var(--color-accent-hover);
+  color: var(--color-ink);
+  border-bottom-color: var(--color-ink-tertiary);
 }
 
 .mv-row__title {
@@ -280,6 +282,14 @@
 }
 
 /* ── Footer disclaimer ─────────────────────────── */
+
+.mv-signal {
+  margin: 0 0 0.85rem;
+  font-size: 0.82rem;
+  color: var(--color-ink-secondary);
+  line-height: 1.55;
+  font-style: italic;
+}
 
 .mv-foot {
   margin-top: 0.85rem;

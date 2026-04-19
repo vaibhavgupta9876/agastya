@@ -44,6 +44,7 @@ export interface BriefOutput {
   questions_to_ask: string[];
   hires: Movement;
   departures: Movement;
+  talent_signal?: string | null;
 }
 
 export interface CustomerNote {

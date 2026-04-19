@@ -61,7 +61,7 @@ export default function Brief({ brief, onReset }: Props) {
           </section>
         )}
 
-        <MovementStrips hires={brief.hires} departures={brief.departures} />
+        <MovementStrips hires={brief.hires} departures={brief.departures} talentSignal={brief.talent_signal} />
 
         {hasPeople && (
           <section className="sec">

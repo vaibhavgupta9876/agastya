@@ -42,6 +42,7 @@ Data extraction rules (obey STRICTLY):
 - `how_they_talk`: Extract HOW they build — technical stacks, operational cadences, internal idioms — drawn from signals/web_snippets. DO NOT write their PR mission statement.
 - `first_month_people`: Focus ONLY on specific context they own. DO NOT invent generic excuses like "align scope".
 - `customers` / `customers_to_know`: Extract 3-5 named customers from the dossier (customers field, signals headlines, or web search snippets — the "customer case study" results are the richest source). For each, name what they use it for. If the dossier truly has none, omit the section — do not fabricate.
+- `talent_signal`: Exactly 2 sentences interpreting the talent flow pattern for the candidate. Sentence 1: what the inbound pattern says about who joins and the implied culture (use hires.by_function). Sentence 2: what the outbound pattern says about where people go and what that implies about career trajectory (use departures.by_function). Use specific company names from the data. If both hires and departures are empty, omit this field entirely.
 
 Return ONLY valid JSON matching the schema provided. No preamble, no trailing prose."""
 

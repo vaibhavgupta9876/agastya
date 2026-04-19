@@ -7,6 +7,7 @@ type Direction = "in" | "out";
 interface Props {
   hires: Movement;
   departures: Movement;
+  talentSignal?: string | null;
 }
 
 function initials(name: string): string {
@@ -148,7 +149,7 @@ function Strip({
   );
 }
 
-export default function MovementStrips({ hires, departures }: Props) {
+export default function MovementStrips({ hires, departures, talentSignal }: Props) {
   const hasHires = hires && hires.people.length > 0;
   const hasDepartures = departures && departures.people.length > 0;
   if (!hasHires && !hasDepartures) return null;
@@ -156,6 +157,9 @@ export default function MovementStrips({ hires, departures }: Props) {
   return (
     <section className="sec mv-section">
       <p className="sec__head">Movement · last 12 months</p>
+      {talentSignal && (
+        <p className="mv-signal">{talentSignal}</p>
+      )}
       <div className="mv-stack">
         {hasHires && <Strip label="Joining" movement={hires} direction="in" />}
         {hasDepartures && (

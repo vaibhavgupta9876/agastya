@@ -1,21 +1,26 @@
 :root {
-  /* palette — cool, precise, hardware-inspired */
-  --color-surface: #ffffff;
-  --color-surface-raised: rgba(255, 255, 255, 0.72);
-  --color-surface-subtle: #f7f7f8;
-  --color-ink: #1d1d1f;
-  --color-ink-secondary: #6e6e73;
-  --color-ink-tertiary: #aeaeb2;
-  --color-separator: rgba(0, 0, 0, 0.08);
-  --color-separator-opaque: #e5e5ea;
-  --color-accent: #0071e3;
-  --color-accent-hover: #0077ed;
-  --color-glass: rgba(255, 255, 255, 0.65);
+  /* palette — warm editorial, private-brief feel */
+  --color-surface: #fbfaf6;
+  --color-surface-raised: rgba(251, 250, 246, 0.72);
+  --color-surface-subtle: #f4f2ec;
+  --color-ink: #1f1b17;
+  --color-ink-secondary: #5a554f;
+  --color-ink-tertiary: #a8a49e;
+  --color-separator: rgba(31, 27, 23, 0.08);
+  --color-separator-opaque: #e6e2da;
+  --color-accent: #1f1b17;
+  --color-accent-hover: #000000;
+  --color-link: #2a4a6b;
+  --color-link-hover: #16304a;
+  --color-warning: #9b3838;
+  --color-warning-soft: #b85555;
+  --color-glass: rgba(251, 250, 246, 0.65);
   --color-glass-border: rgba(255, 255, 255, 0.35);
-  --color-shadow: rgba(0, 0, 0, 0.06);
-  --color-shadow-deep: rgba(0, 0, 0, 0.12);
+  --color-shadow: rgba(31, 27, 23, 0.06);
+  --color-shadow-deep: rgba(31, 27, 23, 0.12);
 
-  /* typography — geometric sans-serif only */
+  /* typography — editorial serif + precise sans for labels */
+  --font-serif: "Fraunces", "Source Serif Pro", "Iowan Old Style", Georgia, serif;
   --font-display: "DM Sans", "Inter", -apple-system, BlinkMacSystemFont, sans-serif;
   --font-body: "Inter", -apple-system, BlinkMacSystemFont, sans-serif;
 
