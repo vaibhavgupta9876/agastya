@@ -58,12 +58,31 @@ async def identify_company(name: str) -> Any:
     return await _post("/company/identify", {"names": [name]})
 
 
-async def enrich_company(domain: str) -> Any:
+_COMPANY_ENRICH_FIELDS = [
+    "basic_info",
+    "headcount",
+    "funding",
+    "hiring",
+    "competitors",
+    "news",
+    "people",
+    "locations",
+    "revenue",
+    "employee_reviews",
+]
+
+
+async def enrich_company(domain: str, fields: list[str] | None = None) -> Any:
     """
     Fetch the full company profile for a given domain.
-    Returns funding, headcount, industries, tech stack, customers, etc.
+
+    Crustdata returns a minimal payload by default; pass `fields` to unlock
+    richer sections (headcount, funding, hiring, competitors, news, people, ...).
     """
-    return await _post("/company/enrich", {"domains": [domain]})
+    return await _post(
+        "/company/enrich",
+        {"domains": [domain], "fields": fields or _COMPANY_ENRICH_FIELDS},
+    )
 
 
 async def search_companies(filters: list[dict[str, Any]], limit: int = 10) -> Any:
@@ -76,25 +95,59 @@ async def search_companies(filters: list[dict[str, Any]], limit: int = 10) -> An
 # ---------------------------------------------------------------------------
 
 
+_PERSON_FIELDS = [
+    "basic_profile.name",
+    "basic_profile.headline",
+    "basic_profile.location.raw",
+    "professional_network_url",
+    "experience.employment_details.current.title",
+    "experience.employment_details.current.company_name",
+    "experience.employment_details.current.start_date",
+]
+
+
+def _person_filters(company_name: str, titles: list[str] | None) -> dict[str, Any]:
+    """
+    Build a Crustdata person-search ConditionGroup.
+
+    Schema (from the live API): `filters` is a single object — either a
+    condition {field, type, value} or a group {op, conditions}. Supported
+    ops on conditions: =, !=, <, =<, >, =>, in, not_in, (.) [regex], [.], geo_distance.
+    """
+    conditions: list[dict[str, Any]] = [
+        {
+            "field": "experience.employment_details.current.company_name",
+            "type": "=",
+            "value": company_name,
+        }
+    ]
+    if titles:
+        conditions.append(
+            {
+                "field": "experience.employment_details.current.title",
+                "type": "(.)",
+                "value": "|".join(titles),
+            }
+        )
+    return {"op": "and", "conditions": conditions}
+
+
 async def search_people(
-    company_domain: str,
+    company_name: str,
     titles: list[str] | None = None,
     limit: int = 10,
 ) -> Any:
     """
-    Find people at a company. Optionally filter by job title keywords.
-
-    `titles` values are matched as substrings against current_title, e.g.
-    ["engineering manager", "vp engineering", "cto"] to find eng leadership.
+    Find people at a company. Optionally narrow by title regex (e.g. ["engineer","lead"]).
     """
-    filters: list[dict[str, Any]] = [
-        {"field": "current_company.domain", "type": "equals", "value": company_domain}
-    ]
-    if titles:
-        filters.append(
-            {"field": "current_title", "type": "in_list", "value": titles}
-        )
-    return await _post("/person/search", {"filters": filters, "limit": limit})
+    return await _post(
+        "/person/search",
+        {
+            "filters": _person_filters(company_name, titles),
+            "fields": _PERSON_FIELDS,
+            "limit": limit,
+        },
+    )
 
 
 async def enrich_person(linkedin_url: str) -> Any:
@@ -114,21 +167,18 @@ async def enrich_person_live(linkedin_url: str) -> Any:
 
 
 async def search_people_live(
-    company_domain: str,
+    company_name: str,
     titles: list[str] | None = None,
     limit: int = 10,
 ) -> Any:
     """Real-time people search — slower but more current than the cached endpoint."""
-    filters: list[dict[str, Any]] = [
-        {"field": "current_company.domain", "type": "equals", "value": company_domain}
-    ]
-    if titles:
-        filters.append(
-            {"field": "current_title", "type": "in_list", "value": titles}
-        )
     return await _post(
         "/person/professional_network/search/live",
-        {"filters": filters, "limit": limit},
+        {
+            "filters": _person_filters(company_name, titles),
+            "fields": _PERSON_FIELDS,
+            "limit": limit,
+        },
     )
 
 

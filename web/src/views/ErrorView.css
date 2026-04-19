@@ -1,0 +1,40 @@
+.error {
+  min-height: 100vh;
+  display: grid;
+  place-items: center;
+  padding: 2.5rem;
+  text-align: center;
+}
+
+.error > * + * {
+  margin-top: 1.2rem;
+}
+
+.error__label {
+  font-size: 0.78rem;
+  text-transform: uppercase;
+  letter-spacing: 0.14em;
+  color: var(--color-muted);
+}
+
+.error__message {
+  font-family: var(--font-display);
+  font-size: clamp(1.4rem, 3vw, 1.9rem);
+  max-width: 28rem;
+  color: var(--color-charcoal);
+}
+
+.error__back {
+  font-size: 0.85rem;
+  color: var(--color-muted);
+  border-bottom: 1px solid var(--color-hairline);
+  padding-bottom: 0.25rem;
+  transition:
+    color var(--dur-fast) var(--ease-out),
+    border-color var(--dur-fast) var(--ease-out);
+}
+
+.error__back:hover {
+  color: var(--color-charcoal);
+  border-bottom-color: var(--color-charcoal);
+}

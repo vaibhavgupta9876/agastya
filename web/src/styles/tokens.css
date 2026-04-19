@@ -1,0 +1,26 @@
+:root {
+  /* palette — bone, charcoal, one muted grey, one hairline */
+  --color-bone: #faf9f5;
+  --color-bone-deeper: #f3f1ea;
+  --color-charcoal: #1a1a1a;
+  --color-muted: #8a8a82;
+  --color-hairline: #e4e1d8;
+  --color-accent-warm: #2a2a25;
+
+  /* typography */
+  --font-display: "Instrument Serif", "Times New Roman", serif;
+  --font-body: "Inter", -apple-system, BlinkMacSystemFont, sans-serif;
+
+  /* motion */
+  --ease-out: cubic-bezier(0.16, 1, 0.3, 1);
+  --ease-in-out: cubic-bezier(0.65, 0, 0.35, 1);
+  --dur-fast: 240ms;
+  --dur-med: 440ms;
+  --dur-slow: 680ms;
+
+  /* rhythm */
+  --space-ma: 8rem; /* the generous negative space */
+  --space-section: 4.5rem;
+  --measure-reading: 36rem;
+  --measure-document: 42rem;
+}

@@ -1,0 +1,90 @@
+@import "./tokens.css";
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+html,
+body,
+#root {
+  min-height: 100vh;
+  width: 100%;
+}
+
+body {
+  font-family: var(--font-body);
+  font-weight: 400;
+  font-size: 16px;
+  line-height: 1.6;
+  color: var(--color-charcoal);
+  background: var(--color-bone);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  font-feature-settings: "ss01", "cv11";
+  text-rendering: optimizeLegibility;
+}
+
+a {
+  color: var(--color-charcoal);
+  text-decoration: none;
+  border-bottom: 1px solid var(--color-hairline);
+  transition: border-color var(--dur-fast) var(--ease-out);
+}
+
+a:hover {
+  border-bottom-color: var(--color-charcoal);
+}
+
+button {
+  font-family: inherit;
+  font-size: inherit;
+  background: none;
+  border: none;
+  cursor: pointer;
+  color: inherit;
+}
+
+input,
+textarea {
+  font-family: inherit;
+  font-size: inherit;
+  color: inherit;
+  background: transparent;
+  border: none;
+  outline: none;
+}
+
+::selection {
+  background: var(--color-charcoal);
+  color: var(--color-bone);
+}
+
+/* global fade-in for view transitions */
+.view {
+  animation: view-enter var(--dur-med) var(--ease-out) both;
+}
+
+@keyframes view-enter {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}
