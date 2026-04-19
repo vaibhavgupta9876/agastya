@@ -15,10 +15,12 @@ Design notes:
 from __future__ import annotations
 
 import asyncio
+from datetime import datetime, timedelta
 from typing import Any
 
 from app.models.schemas import (
     CompanySnapshot,
+    HeadcountTrend,
     Movement,
     MovementGroup,
     MovementPerson,
@@ -35,6 +37,8 @@ from app.services.crustdata import (
     search_people,
     web_search,
 )
+from app.services.prewarm import registry as prewarm_registry
+from app.services.role import classify_role
 
 
 class DossierError(Exception):
@@ -461,6 +465,125 @@ def _group_by_counterparty(
     return [MovementGroup(function=fn, count=ct) for fn, ct in ranked[:top]]
 
 
+def _build_headcount_trends(cd: dict[str, Any]) -> list[HeadcountTrend]:
+    """
+    Compose a per-function view of the company: current share + growth rate.
+
+    Inputs (all from /company/enrich):
+      - headcount.by_function_timeseries.CURRENT_FUNCTION — monthly counts per function
+      - headcount.by_role_percent — current composition snapshot (0-100 pct)
+      - hiring.by_function_qoq_pct — hiring velocity QoQ (ratio, -1..+inf)
+
+    YoY growth is computed from the timeseries (latest vs 12mo prior).
+    Output is capped, sorted by growth magnitude, and trimmed of noise functions.
+    """
+    headcount = cd.get("headcount") or {}
+    hiring = cd.get("hiring") or {}
+
+    series_by_fn = (headcount.get("by_function_timeseries") or {}).get("CURRENT_FUNCTION") or {}
+    share_by_fn = headcount.get("by_role_percent") or {}
+    hiring_qoq = hiring.get("by_function_qoq_pct") or {}
+
+    if not series_by_fn:
+        return []
+
+    trends: list[HeadcountTrend] = []
+    for fn, series in series_by_fn.items():
+        if not isinstance(series, list) or not series:
+            continue
+        parsed: list[tuple[datetime, int]] = []
+        for entry in series:
+            if not isinstance(entry, dict):
+                continue
+            d_str = (entry.get("date") or "")[:10]
+            c = entry.get("employee_count")
+            if not d_str or c is None:
+                continue
+            try:
+                parsed.append((datetime.fromisoformat(d_str), int(c)))
+            except (ValueError, TypeError):
+                continue
+        if not parsed:
+            continue
+        parsed.sort(key=lambda t: t[0])
+        latest_date, latest_count = parsed[-1]
+
+        # Find the most recent entry on or before (latest - 12 months).
+        target_date = latest_date - timedelta(days=365)
+        older = [p for p in parsed if p[0] <= target_date]
+        yoy_pct: float | None = None
+        if older:
+            _, old_count = older[-1]
+            if old_count > 0:
+                yoy_pct = (latest_count - old_count) / old_count * 100.0
+
+        raw_hiring = hiring_qoq.get(fn)
+        hiring_qoq_pct = (
+            float(raw_hiring) * 100.0 if isinstance(raw_hiring, (int, float)) else None
+        )
+
+        raw_share = share_by_fn.get(fn)
+        share_pct = float(raw_share) if isinstance(raw_share, (int, float)) else None
+
+        trends.append(
+            HeadcountTrend(
+                function=fn,
+                share_pct=share_pct,
+                current_count=latest_count,
+                yoy_pct=yoy_pct,
+                hiring_qoq_pct=hiring_qoq_pct,
+            )
+        )
+
+    # Drop tiny functions — a 6× jump from 2 to 15 people is noise, not a bet.
+    # Floor: 2% of company OR at least 20 people absolute.
+    trends = [
+        t for t in trends
+        if (t.share_pct or 0) >= 2.0 or (t.current_count or 0) >= 20
+    ]
+
+    # Mix "pillars" (top by share — where the company actually lives) with
+    # "bets" (top by growth — where it's leaning). Pure growth-sort is too
+    # easily dominated by small-base noise.
+    by_share = sorted(trends, key=lambda t: -(t.share_pct or 0.0))
+    by_growth = sorted(
+        [t for t in trends if t.yoy_pct is not None],
+        key=lambda t: -(t.yoy_pct or 0.0),
+    )
+
+    picked: list[HeadcountTrend] = []
+    seen: set[str] = set()
+
+    # Two pillars: biggest functions by share.
+    for t in by_share[:2]:
+        if t.function not in seen:
+            picked.append(t)
+            seen.add(t.function)
+
+    # Three bets: fastest growing (excluding already picked).
+    grown = 0
+    for t in by_growth:
+        if grown >= 3 or len(picked) >= 5:
+            break
+        if t.function in seen:
+            continue
+        picked.append(t)
+        seen.add(t.function)
+        grown += 1
+
+    # Backfill if growth list was short.
+    for t in by_share[2:]:
+        if len(picked) >= 5:
+            break
+        if t.function not in seen:
+            picked.append(t)
+            seen.add(t.function)
+
+    # Final order: by share desc, so the "where they live" row reads first.
+    picked.sort(key=lambda t: -(t.share_pct or 0.0))
+    return picked
+
+
 def _build_movement(
     raw_resp: Any,
     target: str,
@@ -556,8 +679,16 @@ def _role_matched_hires(hires: Movement, role: str) -> list[PersonCard]:
 # ---------------------------------------------------------------------------
 
 
-async def _resolve_company(name: str) -> tuple[str, str]:
-    """Resolve a user-typed name to (resolved_name, primary_domain)."""
+async def _resolve_company(name: str, domain: str | None = None) -> tuple[str, str]:
+    """
+    Resolve a user-typed name to (resolved_name, primary_domain).
+
+    When the caller has already disambiguated via /identify, passing `domain`
+    skips the identify round-trip. `name` is then treated as the display name.
+    """
+    if domain:
+        return name, domain
+
     try:
         resp = await identify_company(name)
     except CrustdataError as e:
@@ -568,34 +699,91 @@ async def _resolve_company(name: str) -> tuple[str, str]:
 
     best = resp[0]["matches"][0]["company_data"]
     basic = best.get("basic_info", {}) or {}
-    domain = basic.get("primary_domain")
+    resolved_domain = basic.get("primary_domain")
     resolved_name = basic.get("name") or name
-    if not domain:
+    if not resolved_domain:
         raise DossierError(f"Company '{name}' matched but has no primary domain.")
-    return resolved_name, domain
+    return resolved_name, resolved_domain
 
 
-async def build_brief(company: str, role: str) -> RawDossier:
+def _customer_floor_tasks(resolved_name: str, domain: str) -> list[asyncio.Task]:
+    """
+    Beyond the generic "customer case study" query, mine the company's own
+    site and logo-wall language — the richest sources for named customers.
+    """
+    return [
+        asyncio.create_task(web_search(f"{resolved_name} customer case study", limit=5)),
+        asyncio.create_task(web_search(f"site:{domain} customers", limit=5)),
+        asyncio.create_task(web_search(f"site:{domain} case studies", limit=5)),
+        asyncio.create_task(web_search(f'"{resolved_name}" powers OR trusts OR chose', limit=5)),
+    ]
+
+
+def _insider_tasks(resolved_name: str) -> list[asyncio.Task]:
+    """
+    Employee-voice and founder-voice material. Routed separately in synth so
+    Glassdoor/Blind evidence feeds culture_warning and interview transcripts
+    feed the_bet / how_they_talk.
+    """
+    return [
+        asyncio.create_task(web_search(f'site:glassdoor.com "{resolved_name}"', limit=5)),
+        asyncio.create_task(web_search(f'site:teamblind.com "{resolved_name}"', limit=5)),
+        asyncio.create_task(web_search(f'"{resolved_name} CEO" interview OR podcast', limit=5)),
+    ]
+
+
+def _flatten_web_results(responses: list[Any]) -> list[dict[str, Any]]:
+    """Collect .results from a list of web_search responses, ignoring failures."""
+    out: list[dict[str, Any]] = []
+    for r in responses:
+        if isinstance(r, dict):
+            out.extend(r.get("results") or [])
+    return out
+
+
+def _insider_signals(raw_results: list[dict[str, Any]]) -> list[Signal]:
+    """Normalize insider web_search results into Signals (dedup by URL)."""
+    signals: list[Signal] = []
+    seen: set[str] = set()
+    for w in raw_results:
+        url = w.get("url")
+        if not w.get("title") and not w.get("snippet"):
+            continue
+        if url and url in seen:
+            continue
+        if url:
+            seen.add(url)
+        signals.append(
+            Signal(
+                headline=w.get("title") or "",
+                url=url,
+                summary=w.get("snippet"),
+            )
+        )
+    return [s for s in signals if s.headline][:12]
+
+
+async def build_brief(company: str, role: str, domain: str | None = None) -> RawDossier:
     """Assemble the raw dossier for Brief mode."""
-    resolved_name, domain = await _resolve_company(company)
+    resolved_name, domain = await _resolve_company(company, domain)
 
-    enrich_task = asyncio.create_task(enrich_company(domain))
-    web_task = asyncio.create_task(
-        web_search(f"{resolved_name} {role}", limit=5)
-    )
-    web_customers_task = asyncio.create_task(
-        web_search(f"{resolved_name} customer case study", limit=5)
-    )
-    hires_task = asyncio.create_task(recent_hires(resolved_name, days=365, limit=25))
-    departures_task = asyncio.create_task(recent_departures(resolved_name, limit=50))
+    # Role-independent work: hits prewarm cache if the frontend already fired.
+    prewarm_task = asyncio.create_task(prewarm_registry.get_or_fetch(resolved_name, domain))
+    # Role-specific work runs in parallel with the prewarm wait.
+    web_task = asyncio.create_task(web_search(f"{resolved_name} {role}", limit=5))
     role_departures_task = asyncio.create_task(recent_departures(resolved_name, [role], limit=10))
+    classify_task = asyncio.create_task(classify_role(role))
 
-    enrich_resp, web_resp, web_customers, hires_resp, departures_resp, role_departures_resp = await asyncio.gather(
-        enrich_task, web_task, web_customers_task, hires_task, departures_task, role_departures_task,
+    prewarm, web_resp, role_departures_resp, classify_resp = await asyncio.gather(
+        prewarm_task, web_task, role_departures_task, classify_task,
         return_exceptions=True,
     )
+    if isinstance(prewarm, Exception):
+        raise DossierError(f"Prewarm failed: {prewarm}") from prewarm
+    role_classification = classify_resp if not isinstance(classify_resp, Exception) else None
 
-    if isinstance(enrich_resp, Exception) or not enrich_resp or not enrich_resp[0].get("matches"):
+    enrich_resp = prewarm.enrich_resp
+    if not enrich_resp or not enrich_resp[0].get("matches"):
         raise DossierError(f"Could not enrich company at domain '{domain}'.")
 
     cd = enrich_resp[0]["matches"][0]["company_data"]
@@ -603,18 +791,18 @@ async def build_brief(company: str, role: str) -> RawDossier:
     web_results: list[dict[str, Any]] = []
     if isinstance(web_resp, dict):
         web_results.extend(web_resp.get("results") or [])
-    if isinstance(web_customers, dict):
-        web_results.extend(web_customers.get("results") or [])
+    web_results.extend(prewarm.customer_results)
     signals = _build_signals(cd, web_results)
+    insider_snippets = _insider_signals(prewarm.insider_results)
 
-    hires = _build_movement(hires_resp, snapshot.name or resolved_name, "hire")
-    departures = _build_movement(departures_resp, snapshot.name or resolved_name, "departure")
+    hires = _build_movement(prewarm.hires_resp, snapshot.name or resolved_name, "hire")
+    departures = _build_movement(prewarm.departures_resp, snapshot.name or resolved_name, "departure")
 
     leadership = _people_from_enrich_section(cd.get("people") or {}, role=role)
     role_hires = _role_matched_hires(hires, role)
-    # Interleave: 2 leadership, then up to 3 role-matched hires, then more leadership.
-    interleaved = leadership[:2] + role_hires[:3] + leadership[2:]
-    people = _dedupe_people(interleaved, cap=6)
+    # Wider candidate pool — synth picks and ranks interviewer-loop matches.
+    interleaved = leadership[:4] + role_hires[:6] + leadership[4:]
+    people = _dedupe_people(interleaved, cap=12)
 
     alumni_cards: list[PersonCard] = []
     if isinstance(role_departures_resp, dict):
@@ -628,13 +816,16 @@ async def build_brief(company: str, role: str) -> RawDossier:
         company=snapshot,
         people=people,
         signals=signals,
+        insider_snippets=insider_snippets,
         hires=hires,
         departures=departures,
-        alumni_in_role=_dedupe_people(alumni_cards, cap=3)
+        alumni_in_role=_dedupe_people(alumni_cards, cap=3),
+        role=role_classification,
+        headcount_trends=_build_headcount_trends(cd),
     )
 
 
-async def build_playbook(company: str, role: str) -> RawDossier:
+async def build_playbook(company: str, role: str, domain: str | None = None) -> RawDossier:
     """
     Assemble a deeper dossier for Playbook mode.
 
@@ -642,64 +833,56 @@ async def build_playbook(company: str, role: str) -> RawDossier:
     strategy/bet signals, so GPT-5 has material for the first-month and
     'the bet' sections.
     """
-    resolved_name, domain = await _resolve_company(company)
+    resolved_name, domain = await _resolve_company(company, domain)
 
-    enrich_task = asyncio.create_task(enrich_company(domain))
-    web_recent_task = asyncio.create_task(
-        web_search(f"{resolved_name} {role}", limit=5)
-    )
-    web_strategy_task = asyncio.create_task(
-        web_search(f"{resolved_name} strategy customers product launch", limit=5)
-    )
-    web_customers_task = asyncio.create_task(
-        web_search(f"{resolved_name} customer case study", limit=5)
-    )
-    search_task = asyncio.create_task(
-        search_people(resolved_name, limit=30)
-    )
-    hires_task = asyncio.create_task(recent_hires(resolved_name, days=365, limit=25))
-    departures_task = asyncio.create_task(recent_departures(resolved_name, limit=50))
+    prewarm_task = asyncio.create_task(prewarm_registry.get_or_fetch(resolved_name, domain))
+    web_recent_task = asyncio.create_task(web_search(f"{resolved_name} {role}", limit=5))
+    classify_task = asyncio.create_task(classify_role(role))
 
-    enrich_resp, web_recent, web_strategy, web_customers, search_resp, hires_resp, departures_resp = await asyncio.gather(
-        enrich_task, web_recent_task, web_strategy_task, web_customers_task, search_task, hires_task, departures_task,
+    prewarm, web_recent, classify_resp = await asyncio.gather(
+        prewarm_task, web_recent_task, classify_task,
         return_exceptions=True,
     )
+    if isinstance(prewarm, Exception):
+        raise DossierError(f"Prewarm failed: {prewarm}") from prewarm
+    role_classification = classify_resp if not isinstance(classify_resp, Exception) else None
 
-    if isinstance(enrich_resp, Exception) or not enrich_resp or not enrich_resp[0].get("matches"):
+    enrich_resp = prewarm.enrich_resp
+    if not enrich_resp or not enrich_resp[0].get("matches"):
         raise DossierError(f"Could not enrich company at domain '{domain}'.")
 
     cd = enrich_resp[0]["matches"][0]["company_data"]
     snapshot = _build_snapshot(cd)
 
-    hires = _build_movement(hires_resp, snapshot.name or resolved_name, "hire")
-    departures = _build_movement(departures_resp, snapshot.name or resolved_name, "departure")
+    hires = _build_movement(prewarm.hires_resp, snapshot.name or resolved_name, "hire")
+    departures = _build_movement(prewarm.departures_resp, snapshot.name or resolved_name, "departure")
 
     leadership = _people_from_enrich_section(cd.get("people") or {}, role=role)
     role_hires = _role_matched_hires(hires, role)
     search_people_cards: list[PersonCard] = []
-    if isinstance(search_resp, dict):
-        for p in (search_resp.get("profiles") or []):
+    if isinstance(prewarm.search_resp, dict):
+        for p in (prewarm.search_resp.get("profiles") or []):
             try:
                 search_people_cards.append(_person_from_search(p))
             except Exception:
                 continue
-    interleaved = leadership[:2] + role_hires[:3] + leadership[2:] + search_people_cards
-    people = _dedupe_people(interleaved, cap=14)
+    # Wider candidate pool — synth picks and ranks interviewer-loop matches.
+    interleaved = leadership[:4] + role_hires[:6] + leadership[4:] + search_people_cards
+    people = _dedupe_people(interleaved, cap=24)
 
     web_results: list[dict[str, Any]] = []
     if isinstance(web_recent, dict):
         web_results.extend(web_recent.get("results") or [])
-    if isinstance(web_strategy, dict):
-        web_results.extend(web_strategy.get("results") or [])
-    if isinstance(web_customers, dict):
-        web_results.extend(web_customers.get("results") or [])
+    web_results.extend(prewarm.strategy_web_results)
+    web_results.extend(prewarm.customer_results)
     signals = _build_signals(cd, web_results)
+    insider_snippets = _insider_signals(prewarm.insider_results)
 
     # Shadow Org Chart: ICs with longest tenure
     veterans: list[PersonCard] = []
     cxo_words = {"chief", "vp", "president", "founder", "head", "director"}
     valid_tenure_cards = [
-        c for c in search_people_cards 
+        c for c in search_people_cards
         if c.tenure and c.title and not any(w in c.title.lower() for w in cxo_words)
     ]
     valid_tenure_cards.sort(key=lambda c: c.tenure or "9999-99-99")
@@ -709,7 +892,10 @@ async def build_playbook(company: str, role: str) -> RawDossier:
         company=snapshot,
         people=people,
         signals=signals,
+        insider_snippets=insider_snippets,
         hires=hires,
         departures=departures,
         veterans=veterans,
+        role=role_classification,
+        headcount_trends=_build_headcount_trends(cd),
     )

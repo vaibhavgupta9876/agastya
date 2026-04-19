@@ -61,8 +61,12 @@ async def identify_company(name: str) -> Any:
 _COMPANY_ENRICH_FIELDS = [
     "basic_info",
     "headcount",
+    "headcount.by_function_timeseries",
+    "headcount.by_role_percent",
     "funding",
     "hiring",
+    "hiring.by_function_6m_pct",
+    "hiring.by_function_qoq_pct",
     "competitors",
     "news",
     "people",

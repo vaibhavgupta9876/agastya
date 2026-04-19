@@ -6,26 +6,90 @@
   background: var(--color-surface);
 }
 
-.thinking__line {
-  font-family: var(--font-display);
-  font-weight: 500;
-  font-size: clamp(1.3rem, 2.4vw, 1.7rem);
-  color: var(--color-ink-secondary);
-  letter-spacing: -0.01em;
+.thinking__stage {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 1.25rem;
+  max-width: 32rem;
   text-align: center;
-  max-width: 28rem;
+}
+
+.thinking__phase {
+  font-family: var(--font-display);
+  font-size: 0.68rem;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--color-ink-tertiary);
+  font-weight: 600;
+}
+
+.thinking__line {
+  font-family: var(--font-serif);
+  font-weight: 400;
+  font-style: italic;
+  font-size: clamp(1.35rem, 2.6vw, 1.7rem);
+  color: var(--color-ink);
+  letter-spacing: -0.005em;
+  line-height: 1.35;
   animation: line-enter var(--dur-slow) var(--ease-out) both;
+  min-height: 2.4em;
+}
+
+.thinking__meta {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.55rem;
+  margin-top: 0.5rem;
+  font-family: var(--font-display);
+  font-size: 0.78rem;
+  letter-spacing: 0.04em;
+  color: var(--color-ink-tertiary);
+  font-variant-numeric: tabular-nums;
+  font-weight: 500;
+}
+
+.thinking__pulse {
+  display: inline-block;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--color-ink);
+  animation: pulse 1.6s var(--ease-in-out) infinite;
+}
+
+.thinking__elapsed {
+  color: var(--color-ink-secondary);
 }
 
 @keyframes line-enter {
   from {
     opacity: 0;
-    transform: translateY(12px) scale(0.97);
-    filter: blur(4px);
+    transform: translateY(8px);
+    filter: blur(3px);
   }
   to {
     opacity: 1;
     transform: none;
     filter: none;
+  }
+}
+
+@keyframes pulse {
+  0%,
+  100% {
+    opacity: 0.25;
+    transform: scale(0.85);
+  }
+  50% {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .thinking__pulse {
+    animation: none;
+    opacity: 0.8;
   }
 }

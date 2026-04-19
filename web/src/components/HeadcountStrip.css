@@ -1,0 +1,83 @@
+/* Where they're growing — per-function share + growth.
+   Editorial feel: hairline dividers, serif names, tabular numerals for stats. */
+
+.hc-list {
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  max-width: var(--measure-reading);
+}
+
+.hc-row {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 1rem;
+  padding: 0.8rem 0;
+  border-top: 1px solid var(--color-separator);
+}
+
+.hc-row:first-child {
+  border-top: none;
+  padding-top: 0.25rem;
+}
+
+.hc-row:last-child {
+  padding-bottom: 0;
+}
+
+.hc-row__name {
+  font-family: var(--font-serif);
+  font-size: 1.05rem;
+  font-weight: 500;
+  color: var(--color-ink);
+  letter-spacing: -0.005em;
+}
+
+.hc-row__stats {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 1.25rem;
+  font-variant-numeric: tabular-nums;
+  flex-shrink: 0;
+}
+
+.hc-row__share {
+  font-family: var(--font-display);
+  font-size: 0.78rem;
+  font-weight: 500;
+  letter-spacing: 0.02em;
+  color: var(--color-ink-tertiary);
+}
+
+.hc-row__growth {
+  font-family: var(--font-display);
+  font-size: 0.92rem;
+  font-weight: 600;
+  letter-spacing: 0.01em;
+  min-width: 4.5rem;
+  text-align: right;
+}
+
+.hc-row__growth--up {
+  color: #4a7a4a;
+}
+
+.hc-row__growth--down {
+  color: #9b3838;
+}
+
+.hc-row__growth--flat {
+  color: var(--color-ink-tertiary);
+  font-style: italic;
+  font-weight: 500;
+}
+
+.hc-row__growth-suffix {
+  font-size: 0.7rem;
+  font-weight: 500;
+  color: var(--color-ink-tertiary);
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  margin-left: 0.15rem;
+}

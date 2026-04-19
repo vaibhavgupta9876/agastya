@@ -20,7 +20,14 @@
   color: var(--color-ink);
 }
 
-.brief__back {
+.brief__actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.6rem;
+}
+
+.brief__back,
+.brief__share {
   font-size: 0.82rem;
   font-weight: 500;
   color: var(--color-ink-secondary);
@@ -35,9 +42,19 @@
     color var(--dur-fast) var(--ease-out);
 }
 
-.brief__back:hover {
+.brief__back:hover,
+.brief__share:hover {
   background: var(--color-surface-subtle);
   border-color: var(--color-ink-tertiary);
+  color: var(--color-ink);
+}
+
+.brief__share {
+  font-family: var(--font-display);
+  font-size: 0.72rem;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  font-weight: 600;
   color: var(--color-ink);
 }
 
@@ -288,6 +305,85 @@
   color: var(--color-ink-tertiary);
   letter-spacing: 0.08em;
   font-variant-numeric: tabular-nums;
+}
+
+/* ── source receipts ───────────────────────────── */
+
+.receipts {
+  display: inline-flex;
+  gap: 0.25rem;
+  margin-left: 0.4rem;
+  vertical-align: super;
+  line-height: 1;
+}
+
+.receipts__chip {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 1.15rem;
+  height: 1.15rem;
+  padding: 0 0.3rem;
+  font-family: var(--font-display);
+  font-size: 0.62rem;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0.02em;
+  color: var(--color-ink-secondary);
+  background: var(--color-surface-subtle);
+  border: 1px solid var(--color-separator-opaque);
+  border-radius: 999px;
+  text-decoration: none;
+  transition:
+    color var(--dur-fast) var(--ease-out),
+    background var(--dur-fast) var(--ease-out),
+    border-color var(--dur-fast) var(--ease-out);
+}
+
+.receipts__chip:hover {
+  color: var(--color-ink);
+  background: var(--color-surface);
+  border-color: var(--color-ink-tertiary);
+}
+
+/* ── empty states — visible absence ─────────────── */
+
+.sec__empty {
+  font-family: var(--font-serif);
+  font-style: italic;
+  font-size: 0.98rem;
+  line-height: 1.55;
+  color: var(--color-ink-tertiary);
+  max-width: var(--measure-reading);
+  font-weight: 400;
+}
+
+/* ── customers list ────────────────────────────── */
+
+.sec__customers {
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  max-width: var(--measure-reading);
+}
+
+.sec__customers li {
+  font-family: var(--font-serif);
+  font-size: 1.02rem;
+  line-height: 1.55;
+  color: var(--color-ink);
+  padding: 0.8rem 0;
+  border-top: 1px solid var(--color-separator);
+  font-weight: 400;
+}
+
+.sec__customers li:first-child {
+  border-top: none;
+  padding-top: 0;
+}
+
+.sec__customers li:last-child {
+  padding-bottom: 0;
 }
 
 /* ── footer ────────────────────────────────────── */
