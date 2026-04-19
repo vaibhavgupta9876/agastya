@@ -63,6 +63,95 @@ def _current_employment(person: dict[str, Any]) -> dict[str, Any]:
     return {}
 
 
+# Title patterns that indicate the person is NOT an employee — investors,
+# advisors, board members can leak into the enrich `decision_makers` bucket.
+_NON_EMPLOYEE_TITLE_PATTERNS = (
+    "investor",
+    "advisor",
+    "board member",
+    "board observer",
+    "limited partner",
+    "general partner",
+    "venture partner",
+    "operating partner",
+    "angel ",
+    "early backer",
+)
+
+
+def _is_non_employee_title(title: str | None) -> bool:
+    if not title:
+        return False
+    t = title.lower()
+    return any(p in t for p in _NON_EMPLOYEE_TITLE_PATTERNS)
+
+
+# Role family inference. Used to rank enrich people by role relevance.
+_ROLE_FAMILIES: dict[str, tuple[str, ...]] = {
+    "tech": (
+        "engineer", "engineering", "developer", "swe", "sde", "mts",
+        "member of technical staff", "research", "ml", "ai", "data scientist",
+        "infrastructure", "infra", "platform", "backend", "frontend",
+        "fullstack", "full stack", "ios", "android", "mobile", "devops",
+        "sre", "security", "architect",
+    ),
+    "product": ("product manager", "product", " pm ", "product owner", "designer", "design", "ux", "ui"),
+    "sales": ("sales", "account executive", "ae ", "bdr", "sdr", "gtm", "go-to-market", "revenue"),
+    "marketing": ("marketing", "growth", "brand", "communications", "comms"),
+    "ops": ("operations", "ops ", "supply chain", "logistics"),
+    "finance": ("finance", "cfo", "controller", "accountant", "fp&a"),
+    "people": ("hr ", "hrbp", "people ops", "talent", "recruit"),
+    "legal": ("legal", "counsel", "compliance"),
+}
+
+_FAMILY_LEADERSHIP_HINTS: dict[str, tuple[str, ...]] = {
+    "tech": ("cto", "chief technology", "vp eng", "vp of engineering",
+             "head of engineering", "head of research", "chief scientist",
+             "research lead", "vp research", "principal", "staff", "distinguished"),
+    "product": ("cpo", "chief product", "vp product", "head of product", "vp design", "head of design"),
+    "sales": ("cro", "chief revenue", "vp sales", "head of sales", "vp of sales"),
+    "marketing": ("cmo", "chief marketing", "vp marketing", "head of marketing"),
+    "ops": ("coo", "chief operating", "vp operations", "head of operations"),
+    "finance": ("cfo", "chief financial", "vp finance", "head of finance"),
+    "people": ("chro", "chief people", "vp people", "head of people"),
+    "legal": ("general counsel", "chief legal"),
+}
+
+
+def _role_family(role: str | None) -> str:
+    if not role:
+        return "general"
+    r = " " + role.lower() + " "
+    for fam, needles in _ROLE_FAMILIES.items():
+        if any(n in r for n in needles):
+            return fam
+    return "general"
+
+
+def _role_relevance_score(title: str | None, family: str) -> int:
+    """Higher = more relevant to the role family. Range roughly -50..+50."""
+    if not title:
+        return 0
+    t = title.lower()
+    score = 0
+    if family != "general":
+        if any(n in t for n in _ROLE_FAMILIES.get(family, ())):
+            score += 20
+        if any(h in t for h in _FAMILY_LEADERSHIP_HINTS.get(family, ())):
+            score += 25
+        # Cross-family penalty so a Marketing VP doesn't beat a senior eng.
+        for other_fam, needles in _ROLE_FAMILIES.items():
+            if other_fam == family or other_fam == "general":
+                continue
+            if any(n in t for n in needles):
+                score -= 15
+                break
+    # Always boost C-suite / co-founders modestly — they're useful context.
+    if any(h in t for h in ("ceo", "co-founder", "cofounder", "founder", "president")):
+        score += 8
+    return score
+
+
 def _person_from_enrich(p: dict[str, Any]) -> PersonCard:
     """Convert a record from company_data.people.* into a PersonCard."""
     bp = p.get("basic_profile", {}) or {}
@@ -314,6 +403,12 @@ def _movement_person_from_departure(p: dict[str, Any], target: str) -> MovementP
     if (_company_name(cur) or "").lower() == target.lower():
         return None
 
+    # Drop "→ unknown" departures — without a destination this looks like noise
+    # in the UI ("name went to None"). The current employer is what gives the
+    # row narrative weight; without it, skip.
+    if not (_company_name(cur) or "").strip():
+        return None
+
     past_list = emp.get("past")
     if isinstance(past_list, dict):
         past_list = [past_list]
@@ -402,18 +497,58 @@ def _build_movement(
     )
 
 
-def _people_from_enrich_section(people_section: dict[str, Any]) -> list[PersonCard]:
-    """Extract founders + decision_makers + cxos as PersonCards."""
+def _people_from_enrich_section(
+    people_section: dict[str, Any], role: str | None = None
+) -> list[PersonCard]:
+    """
+    Extract founders + decision_makers + cxos as PersonCards, filtered for
+    actual employees (drops investors/advisors/board) and ranked by relevance
+    to the candidate's target role.
+    """
     if not people_section:
         return []
-    cards: list[PersonCard] = []
+    family = _role_family(role)
+    cards: list[tuple[int, PersonCard]] = []
     for bucket in ("founders", "decision_makers", "cxos"):
         for p in (people_section.get(bucket) or []):
             try:
-                cards.append(_person_from_enrich(p))
+                card = _person_from_enrich(p)
             except Exception:
                 continue
-    return cards
+            if _is_non_employee_title(card.title):
+                continue
+            score = _role_relevance_score(card.title, family)
+            cards.append((score, card))
+    cards.sort(key=lambda sc: -sc[0])
+    return [c for _, c in cards]
+
+
+def _role_matched_hires(hires: Movement, role: str) -> list[PersonCard]:
+    """Surface senior recent hires whose title matches the role family."""
+    family = _role_family(role)
+    if family == "general":
+        return []
+    matched: list[tuple[int, PersonCard]] = []
+    for p in hires.people:
+        score = _role_relevance_score(p.title, family)
+        if score < 20:
+            continue
+        # Boost by inferred title seniority (lower _seniority_from_title = better).
+        rank_bonus = max(0, 10 - _seniority_from_title(p.title))
+        matched.append(
+            (
+                score + rank_bonus,
+                PersonCard(
+                    name=p.name,
+                    title=p.title,
+                    headline=p.headline,
+                    linkedin_url=p.linkedin_url,
+                    location=None,
+                ),
+            )
+        )
+    matched.sort(key=lambda sc: -sc[0])
+    return [c for _, c in matched]
 
 
 # ---------------------------------------------------------------------------
@@ -448,12 +583,15 @@ async def build_brief(company: str, role: str) -> RawDossier:
     web_task = asyncio.create_task(
         web_search(f"{resolved_name} {role}", limit=5)
     )
+    web_customers_task = asyncio.create_task(
+        web_search(f"{resolved_name} customer case study", limit=5)
+    )
     hires_task = asyncio.create_task(recent_hires(resolved_name, days=365, limit=25))
     departures_task = asyncio.create_task(recent_departures(resolved_name, limit=50))
     role_departures_task = asyncio.create_task(recent_departures(resolved_name, [role], limit=10))
 
-    enrich_resp, web_resp, hires_resp, departures_resp, role_departures_resp = await asyncio.gather(
-        enrich_task, web_task, hires_task, departures_task, role_departures_task,
+    enrich_resp, web_resp, web_customers, hires_resp, departures_resp, role_departures_resp = await asyncio.gather(
+        enrich_task, web_task, web_customers_task, hires_task, departures_task, role_departures_task,
         return_exceptions=True,
     )
 
@@ -462,14 +600,21 @@ async def build_brief(company: str, role: str) -> RawDossier:
 
     cd = enrich_resp[0]["matches"][0]["company_data"]
     snapshot = _build_snapshot(cd)
-    people = _dedupe_people(
-        _people_from_enrich_section(cd.get("people") or {}), cap=6
-    )
-    web_results = web_resp.get("results") if isinstance(web_resp, dict) else []
-    signals = _build_signals(cd, web_results or [])
+    web_results: list[dict[str, Any]] = []
+    if isinstance(web_resp, dict):
+        web_results.extend(web_resp.get("results") or [])
+    if isinstance(web_customers, dict):
+        web_results.extend(web_customers.get("results") or [])
+    signals = _build_signals(cd, web_results)
 
     hires = _build_movement(hires_resp, snapshot.name or resolved_name, "hire")
     departures = _build_movement(departures_resp, snapshot.name or resolved_name, "departure")
+
+    leadership = _people_from_enrich_section(cd.get("people") or {}, role=role)
+    role_hires = _role_matched_hires(hires, role)
+    # Interleave: 2 leadership, then up to 3 role-matched hires, then more leadership.
+    interleaved = leadership[:2] + role_hires[:3] + leadership[2:]
+    people = _dedupe_people(interleaved, cap=6)
 
     alumni_cards: list[PersonCard] = []
     if isinstance(role_departures_resp, dict):
@@ -506,14 +651,17 @@ async def build_playbook(company: str, role: str) -> RawDossier:
     web_strategy_task = asyncio.create_task(
         web_search(f"{resolved_name} strategy customers product launch", limit=5)
     )
+    web_customers_task = asyncio.create_task(
+        web_search(f"{resolved_name} customer case study", limit=5)
+    )
     search_task = asyncio.create_task(
         search_people(resolved_name, limit=30)
     )
     hires_task = asyncio.create_task(recent_hires(resolved_name, days=365, limit=25))
     departures_task = asyncio.create_task(recent_departures(resolved_name, limit=50))
 
-    enrich_resp, web_recent, web_strategy, search_resp, hires_resp, departures_resp = await asyncio.gather(
-        enrich_task, web_recent_task, web_strategy_task, search_task, hires_task, departures_task,
+    enrich_resp, web_recent, web_strategy, web_customers, search_resp, hires_resp, departures_resp = await asyncio.gather(
+        enrich_task, web_recent_task, web_strategy_task, web_customers_task, search_task, hires_task, departures_task,
         return_exceptions=True,
     )
 
@@ -523,7 +671,11 @@ async def build_playbook(company: str, role: str) -> RawDossier:
     cd = enrich_resp[0]["matches"][0]["company_data"]
     snapshot = _build_snapshot(cd)
 
-    leadership = _people_from_enrich_section(cd.get("people") or {})
+    hires = _build_movement(hires_resp, snapshot.name or resolved_name, "hire")
+    departures = _build_movement(departures_resp, snapshot.name or resolved_name, "departure")
+
+    leadership = _people_from_enrich_section(cd.get("people") or {}, role=role)
+    role_hires = _role_matched_hires(hires, role)
     search_people_cards: list[PersonCard] = []
     if isinstance(search_resp, dict):
         for p in (search_resp.get("profiles") or []):
@@ -531,17 +683,17 @@ async def build_playbook(company: str, role: str) -> RawDossier:
                 search_people_cards.append(_person_from_search(p))
             except Exception:
                 continue
-    people = _dedupe_people(leadership + search_people_cards, cap=14)
+    interleaved = leadership[:2] + role_hires[:3] + leadership[2:] + search_people_cards
+    people = _dedupe_people(interleaved, cap=14)
 
     web_results: list[dict[str, Any]] = []
     if isinstance(web_recent, dict):
         web_results.extend(web_recent.get("results") or [])
     if isinstance(web_strategy, dict):
         web_results.extend(web_strategy.get("results") or [])
+    if isinstance(web_customers, dict):
+        web_results.extend(web_customers.get("results") or [])
     signals = _build_signals(cd, web_results)
-
-    hires = _build_movement(hires_resp, snapshot.name or resolved_name, "hire")
-    departures = _build_movement(departures_resp, snapshot.name or resolved_name, "departure")
 
     # Shadow Org Chart: ICs with longest tenure
     veterans: list[PersonCard] = []

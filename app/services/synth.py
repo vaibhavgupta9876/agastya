@@ -12,6 +12,7 @@ into a meeting. Short sentences. Specific. No marketing speak. No hedging.
 from __future__ import annotations
 
 import json
+from datetime import date
 
 from openai import AsyncOpenAI
 
@@ -20,18 +21,33 @@ from app.models.schemas import BriefOutput, PlaybookOutput, RawDossier
 
 _MODEL = "gpt-5"
 
-_VOICE = """You are composing a private, elegantly printed one-pager for someone walking into a meeting with this company — either to interview there or to start work there soon.
+_VOICE_TEMPLATE = """You are composing a private, elegantly printed one-pager for someone walking into a meeting with this company — either to interview there or to start work there soon.
+
+Today's date is {today}. Anything dated after this is impossible; anything from this year is "recent".
 
 Voice rules (obey strictly):
 - Short sentences. Specific nouns. Concrete numbers where they exist.
-- No marketing language. No "leading", "innovative", "cutting-edge", "world-class".
+- No marketing language. No "leading", "innovative", "world-class".
 - No hedging. If you don't know something, omit the section rather than speculate.
-- Write as if the reader is smart and short on time. Never patronize.
-- For questions_to_ask, each one must reference a SPECIFIC data point from the dossier — a funding round, a named product, a customer, a hiring signal, a person by name. Generic interview questions are a failure.
-- For the essence, one sentence. It should make someone who doesn't know the company immediately understand what they sell and to whom.
-- If employee_reviews show discrepancies (e.g. good culture but terrible work-life balance), write a blunt 1-sentence culture_warning. Otherwise omit it.
+- Write as if the reader is a ruthless peer short on time. Never patronize.
+- If employee_reviews show discrepancies (e.g. good culture but terrible work-life balance), write a blunt 1-sentence culture_warning. Otherwise omit.
+
+Invention discipline (CRITICAL — violations make the brief worthless):
+- NEVER invent product names, model versions, customer names, dollar figures, dates, or any fact not present in the dossier.
+- If the dossier says "GPT-5" do not write "GPT-4.x". If a customer isn't named in the dossier or web_snippets, do not name one.
+- When uncertain about a specific name/number, write the general claim without it, or omit the line.
+
+Data extraction rules (obey STRICTLY):
+- `questions_to_ask`: EXACTLY 3 lethal, highly-specific questions grounded in dossier facts (a named recent hire, a specific funding round, a named competitor, a specific product). No generic interview questions.
+- `how_they_talk`: Extract HOW they build — technical stacks, operational cadences, internal idioms — drawn from signals/web_snippets. DO NOT write their PR mission statement.
+- `first_month_people`: Focus ONLY on specific context they own. DO NOT invent generic excuses like "align scope".
+- `customers` / `customers_to_know`: Extract 3-5 named customers from the dossier (customers field, signals headlines, or web search snippets — the "customer case study" results are the richest source). For each, name what they use it for. If the dossier truly has none, omit the section — do not fabricate.
 
 Return ONLY valid JSON matching the schema provided. No preamble, no trailing prose."""
+
+
+def _voice() -> str:
+    return _VOICE_TEMPLATE.format(today=date.today().isoformat())
 
 
 def _client() -> AsyncOpenAI:
@@ -63,7 +79,7 @@ async def _synthesize(raw: RawDossier, role: str, mode: str, schema_cls: type) -
     response = await client.chat.completions.create(
         model=_MODEL,
         messages=[
-            {"role": "system", "content": _VOICE},
+            {"role": "system", "content": _voice()},
             {"role": "user", "content": _user_prompt(raw, role, mode)},
         ],
         response_format={
@@ -94,4 +110,11 @@ async def synthesize_playbook(raw: RawDossier, role: str) -> PlaybookOutput:
     data.setdefault("company_name", raw.company.name)
     data["hires"] = raw.hires.model_dump()
     data["departures"] = raw.departures.model_dump()
+
+    if not data.get("shadow_org_chart") and raw.veterans:
+        data["shadow_org_chart"] = [
+            {"name": p.name, "title": p.title or "Unknown", "background": f"Joined: {p.tenure}" if p.tenure else "Long-tenured IC", "linkedin_url": p.linkedin_url}
+            for p in raw.veterans
+        ]
+        
     return PlaybookOutput.model_validate(data)

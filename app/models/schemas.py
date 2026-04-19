@@ -140,8 +140,11 @@ class BriefOutput(BaseModel):
     people: list[BriefPerson] = []
     role_survival: list[BriefPerson] = Field(default_factory=list, description="People who recently left the target role")
     product: str
-    customers: list[str] = []
-    questions_to_ask: list[str] = []
+    customers: list[str] = Field(default_factory=list, description="Customer name + specific use case. Focus on depth over volume.")
+    questions_to_ask: list[str] = Field(
+        default_factory=list, 
+        description="EXACTLY 3 lethal, highly-specific questions. E.g. asking about trade-offs, tech debt, or a recent failure."
+    )
     # Structural movement data — passed through from RawDossier verbatim,
     # not synthesized by the LLM. The LLM may reference it in questions.
     hires: Movement = Field(default_factory=Movement)
@@ -163,7 +166,10 @@ class PlaybookOutput(BriefOutput):
 
     first_month_people: list[BriefPerson] = []
     shadow_org_chart: list[BriefPerson] = Field(default_factory=list, description="Longest tenured ICs (not VPs/CXOs)")
-    customers_to_know: list[CustomerNote] = []
-    the_bet: str = ""
-    how_they_talk: list[str] = []
+    customers_to_know: list[CustomerNote] = Field(default_factory=list, description="Top 2 customers and how they actually use the product.")
+    the_bet: str = Field(default="", description="The core strategic gamble the company is making right now.")
+    how_they_talk: list[str] = Field(
+        default_factory=list, 
+        description="Internal idioms, operational cadences, or technical stack context. IGNORE PR/MARKETING SPEAK (e.g. 'Safety first', 'Expanding access')."
+    )
     read_before_day_one: list[ReadingItem] = []

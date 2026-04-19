@@ -13,14 +13,16 @@ function SectionHead({ children }: { children: string }) {
 
 export default function Brief({ brief, onReset }: Props) {
   const hasCultureWarning = !!brief.culture_warning;
-  const hasRoleSurvival = brief.role_survival && brief.role_survival.length > 0;
-  
+
   // Cast or duck-type for PlaybookOutput specific fields
   const playbook = brief as any;
   const hasShadowOrgChart = playbook.shadow_org_chart && playbook.shadow_org_chart.length > 0;
 
+  const hasFirstMonthPeople = playbook.first_month_people && playbook.first_month_people.length > 0;
+  
   const hasMoment = brief.moment && brief.moment.length > 0;
-  const hasPeople = brief.people && brief.people.length > 0;
+  // Hide the generic Brief people section if we have the richer Playbook first_month_people
+  const hasPeople = brief.people && brief.people.length > 0 && !hasFirstMonthPeople;
   const hasCustomers = brief.customers && brief.customers.length > 0;
   const hasQuestions = brief.questions_to_ask && brief.questions_to_ask.length > 0;
 
@@ -86,11 +88,11 @@ export default function Brief({ brief, onReset }: Props) {
           </section>
         )}
 
-        {hasRoleSurvival && (
-          <section className="sec sec--survival">
-            <SectionHead>Ghosts of the Role (Recent departures)</SectionHead>
+        {hasFirstMonthPeople && (
+          <section className="sec sec--playbook">
+            <SectionHead>The Fresh Blood (Meet your first month)</SectionHead>
             <ul className="sec__people">
-              {brief.role_survival.map((p, i) => (
+              {playbook.first_month_people.map((p: any, i: number) => (
                 <li key={i} className="person">
                   <div className="person__head">
                     <span className="person__name">
@@ -104,6 +106,7 @@ export default function Brief({ brief, onReset }: Props) {
                     </span>
                     <span className="person__title">{p.title}</span>
                   </div>
+                  <p className="person__bg">{p.background}</p>
                 </li>
               ))}
             </ul>
