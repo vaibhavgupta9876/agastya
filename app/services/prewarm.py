@@ -17,9 +17,24 @@ Design:
 from __future__ import annotations
 
 import asyncio
+import logging
 import time
 from dataclasses import dataclass, field
 from typing import Any
+
+logger = logging.getLogger("insiderbrief.prewarm")
+
+
+async def _timed(name: str, coro: Any) -> Any:
+    """Await a coroutine and log how long it took. Exceptions logged, re-raised."""
+    t0 = time.perf_counter()
+    try:
+        result = await coro
+        logger.info("  crustdata %s took %.2fs", name, time.perf_counter() - t0)
+        return result
+    except Exception as e:
+        logger.info("  crustdata %s FAILED after %.2fs (%s)", name, time.perf_counter() - t0, type(e).__name__)
+        raise
 
 from app.services.crustdata import (
     enrich_company,
@@ -67,23 +82,32 @@ def _insider_queries(resolved_name: str) -> list[str]:
 
 async def _fetch(resolved_name: str, domain: str) -> PrewarmBundle:
     bundle = PrewarmBundle(resolved_name=resolved_name, domain=domain)
+    t0 = time.perf_counter()
+    logger.info("prewarm START %s (%s)", resolved_name, domain)
 
-    customer_tasks = [asyncio.create_task(web_search(q, limit=5)) for q in _customer_queries(resolved_name, domain)]
-    insider_tasks = [asyncio.create_task(web_search(q, limit=5)) for q in _insider_queries(resolved_name)]
+    customer_tasks = [
+        asyncio.create_task(_timed(f"web:customer[{i}]", web_search(q, limit=5)))
+        for i, q in enumerate(_customer_queries(resolved_name, domain))
+    ]
+    insider_tasks = [
+        asyncio.create_task(_timed(f"web:insider[{i}]", web_search(q, limit=5)))
+        for i, q in enumerate(_insider_queries(resolved_name))
+    ]
     strategy_task = asyncio.create_task(
-        web_search(f"{resolved_name} strategy customers product launch", limit=5)
+        _timed("web:strategy", web_search(f"{resolved_name} strategy customers product launch", limit=5))
     )
 
-    enrich_task = asyncio.create_task(enrich_company(domain))
-    hires_task = asyncio.create_task(recent_hires(resolved_name, days=365, limit=25))
-    departures_task = asyncio.create_task(recent_departures(resolved_name, limit=50))
-    search_task = asyncio.create_task(search_people(resolved_name, limit=30))
+    enrich_task = asyncio.create_task(_timed("enrich", enrich_company(domain)))
+    hires_task = asyncio.create_task(_timed("recent_hires", recent_hires(resolved_name, days=365, limit=25)))
+    departures_task = asyncio.create_task(_timed("recent_departures", recent_departures(resolved_name, limit=50)))
+    search_task = asyncio.create_task(_timed("search_people", search_people(resolved_name, limit=30)))
 
     results = await asyncio.gather(
         enrich_task, hires_task, departures_task, search_task, strategy_task,
         *customer_tasks, *insider_tasks,
         return_exceptions=True,
     )
+    logger.info("prewarm DONE  %s in %.2fs", resolved_name, time.perf_counter() - t0)
     enrich_resp, hires_resp, departures_resp, search_resp, strategy_resp = results[:5]
     customer_resps = results[5 : 5 + len(customer_tasks)]
     insider_resps = results[5 + len(customer_tasks) : 5 + len(customer_tasks) + len(insider_tasks)]

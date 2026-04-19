@@ -15,8 +15,12 @@ Design notes:
 from __future__ import annotations
 
 import asyncio
+import logging
+import time
 from datetime import datetime, timedelta
 from typing import Any
+
+logger = logging.getLogger("insiderbrief.dossier")
 
 from app.models.schemas import (
     CompanySnapshot,
@@ -765,9 +769,13 @@ def _insider_signals(raw_results: list[dict[str, Any]]) -> list[Signal]:
 
 async def build_brief(company: str, role: str, domain: str | None = None) -> RawDossier:
     """Assemble the raw dossier for Brief mode."""
+    t0 = time.perf_counter()
     resolved_name, domain = await _resolve_company(company, domain)
+    t_resolve = time.perf_counter() - t0
 
     # Role-independent work: hits prewarm cache if the frontend already fired.
+    t_gather = time.perf_counter()
+    prewarm_cached = domain.lower() in prewarm_registry._cache  # type: ignore[attr-defined]
     prewarm_task = asyncio.create_task(prewarm_registry.get_or_fetch(resolved_name, domain))
     # Role-specific work runs in parallel with the prewarm wait.
     web_task = asyncio.create_task(web_search(f"{resolved_name} {role}", limit=5))
@@ -777,6 +785,11 @@ async def build_brief(company: str, role: str, domain: str | None = None) -> Raw
     prewarm, web_resp, role_departures_resp, classify_resp = await asyncio.gather(
         prewarm_task, web_task, role_departures_task, classify_task,
         return_exceptions=True,
+    )
+    t_gather = time.perf_counter() - t_gather
+    logger.info(
+        "[brief %s / %s] resolve=%.2fs  gather=%.2fs  prewarm_cached=%s",
+        resolved_name, role, t_resolve, t_gather, prewarm_cached,
     )
     if isinstance(prewarm, Exception):
         raise DossierError(f"Prewarm failed: {prewarm}") from prewarm
@@ -833,8 +846,12 @@ async def build_playbook(company: str, role: str, domain: str | None = None) -> 
     strategy/bet signals, so GPT-5 has material for the first-month and
     'the bet' sections.
     """
+    t0 = time.perf_counter()
     resolved_name, domain = await _resolve_company(company, domain)
+    t_resolve = time.perf_counter() - t0
 
+    t_gather = time.perf_counter()
+    prewarm_cached = domain.lower() in prewarm_registry._cache  # type: ignore[attr-defined]
     prewarm_task = asyncio.create_task(prewarm_registry.get_or_fetch(resolved_name, domain))
     web_recent_task = asyncio.create_task(web_search(f"{resolved_name} {role}", limit=5))
     classify_task = asyncio.create_task(classify_role(role))
@@ -842,6 +859,11 @@ async def build_playbook(company: str, role: str, domain: str | None = None) -> 
     prewarm, web_recent, classify_resp = await asyncio.gather(
         prewarm_task, web_recent_task, classify_task,
         return_exceptions=True,
+    )
+    t_gather = time.perf_counter() - t_gather
+    logger.info(
+        "[playbook %s / %s] resolve=%.2fs  gather=%.2fs  prewarm_cached=%s",
+        resolved_name, role, t_resolve, t_gather, prewarm_cached,
     )
     if isinstance(prewarm, Exception):
         raise DossierError(f"Prewarm failed: {prewarm}") from prewarm

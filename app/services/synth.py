@@ -16,6 +16,8 @@ fabricated URLs are stripped before the payload goes to the frontend.
 from __future__ import annotations
 
 import json
+import logging
+import time
 from datetime import date
 from typing import Any
 
@@ -23,6 +25,8 @@ from openai import AsyncOpenAI
 
 from app.config import settings
 from app.models.schemas import BriefOutput, PlaybookOutput, RawDossier
+
+logger = logging.getLogger("insiderbrief.synth")
 
 _MODEL = "gpt-5"
 
@@ -115,12 +119,18 @@ async def _synthesize(raw: RawDossier, role: str, mode: str, schema_cls: type) -
     """
     client = _client()
     schema = schema_cls.model_json_schema()
+    user_msg = _user_prompt(raw, role, mode)
+    logger.info(
+        "[synth %s] model=%s dossier_chars=%d",
+        mode, _MODEL, len(user_msg),
+    )
 
+    t0 = time.perf_counter()
     response = await client.chat.completions.create(
         model=_MODEL,
         messages=[
             {"role": "system", "content": _voice()},
-            {"role": "user", "content": _user_prompt(raw, role, mode)},
+            {"role": "user", "content": user_msg},
         ],
         response_format={
             "type": "json_schema",
@@ -130,8 +140,19 @@ async def _synthesize(raw: RawDossier, role: str, mode: str, schema_cls: type) -
                 "strict": False,
             },
         },
+        reasoning_effort="minimal",
+        verbosity="low",
     )
+    elapsed = time.perf_counter() - t0
     content = response.choices[0].message.content or "{}"
+    usage = response.usage
+    logger.info(
+        "[synth %s] took=%.2fs  prompt_tokens=%s  completion_tokens=%s  reasoning_tokens=%s",
+        mode, elapsed,
+        getattr(usage, "prompt_tokens", "?"),
+        getattr(usage, "completion_tokens", "?"),
+        getattr(getattr(usage, "completion_tokens_details", None), "reasoning_tokens", "?"),
+    )
     return json.loads(content)
 
 

@@ -101,6 +101,34 @@ export default function Search({ onSubmit }: Props) {
       ? ["The moment", "The people", "Questions to ask"]
       : ["Your first month", "How they talk", "Questions to ask inside"];
 
+  const roleSuggestions = [
+    "Software Engineer",
+    "Senior Software Engineer",
+    "Staff Software Engineer",
+    "Engineering Manager",
+    "Frontend Engineer",
+    "Backend Engineer",
+    "Machine Learning Engineer",
+    "Site Reliability Engineer",
+    "Security Engineer",
+    "Head of Engineering",
+    "Product Manager",
+    "Senior Product Manager",
+    "Group Product Manager",
+    "Product Designer",
+    "Design Lead",
+    "Data Scientist",
+    "Data Engineer",
+    "Data Analyst",
+    "Account Executive",
+    "Enterprise Account Executive",
+    "Sales Development Representative",
+    "Growth Marketer",
+    "Product Marketing Manager",
+    "Recruiter",
+    "Chief of Staff",
+  ];
+
   return (
     <main className="view search">
       <header className="search__brand">InsiderBrief</header>
@@ -229,7 +257,13 @@ export default function Search({ onSubmit }: Props) {
               onChange={(e) => setRole(e.target.value)}
               spellCheck={false}
               autoComplete="off"
+              list="role-options"
             />
+            <datalist id="role-options">
+              {roleSuggestions.map((r) => (
+                <option key={r} value={r} />
+              ))}
+            </datalist>
           </div>
 
           <div

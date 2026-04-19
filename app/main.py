@@ -1,5 +1,6 @@
 import asyncio
 import logging
+import time
 
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
@@ -92,12 +93,23 @@ async def brief(req: DossierRequest) -> BriefOutput:
     key = cache.key("brief", req.company, req.role, req.domain)
     cached = cache.get(key)
     if cached is not None:
+        logger.info("[brief %s/%s] CACHE HIT", req.company, req.role)
         return BriefOutput.model_validate(cached)
+    t_req = time.perf_counter()
+    logger.info("[brief %s/%s] START", req.company, req.role)
     try:
         async with asyncio.timeout(_TIMEOUT_SECONDS):
+            t_dossier = time.perf_counter()
             raw = await build_brief(req.company, req.role, domain=req.domain)
+            t_dossier = time.perf_counter() - t_dossier
+            t_synth = time.perf_counter()
             result = await synthesize_brief(raw, req.role)
+            t_synth = time.perf_counter() - t_synth
             cache.set(key, result.model_dump())
+            logger.info(
+                "[brief %s/%s] DONE total=%.2fs  dossier=%.2fs  synth=%.2fs",
+                req.company, req.role, time.perf_counter() - t_req, t_dossier, t_synth,
+            )
             return result
     except asyncio.TimeoutError:
         raise HTTPException(status_code=504, detail="Dossier assembly timed out.")
@@ -116,12 +128,23 @@ async def playbook(req: DossierRequest) -> PlaybookOutput:
     key = cache.key("playbook", req.company, req.role, req.domain)
     cached = cache.get(key)
     if cached is not None:
+        logger.info("[playbook %s/%s] CACHE HIT", req.company, req.role)
         return PlaybookOutput.model_validate(cached)
+    t_req = time.perf_counter()
+    logger.info("[playbook %s/%s] START", req.company, req.role)
     try:
         async with asyncio.timeout(_TIMEOUT_SECONDS):
+            t_dossier = time.perf_counter()
             raw = await build_playbook(req.company, req.role, domain=req.domain)
+            t_dossier = time.perf_counter() - t_dossier
+            t_synth = time.perf_counter()
             result = await synthesize_playbook(raw, req.role)
+            t_synth = time.perf_counter() - t_synth
             cache.set(key, result.model_dump())
+            logger.info(
+                "[playbook %s/%s] DONE total=%.2fs  dossier=%.2fs  synth=%.2fs",
+                req.company, req.role, time.perf_counter() - t_req, t_dossier, t_synth,
+            )
             return result
     except asyncio.TimeoutError:
         raise HTTPException(status_code=504, detail="Dossier assembly timed out.")
